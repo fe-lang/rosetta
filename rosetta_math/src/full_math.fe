@@ -1,0 +1,60 @@
+use std::evm::ops
+
+/// 512-bit mulDiv: floor(a * b / denominator) with full precision.
+/// Semantically equivalent to Uniswap V3 FullMath.sol.
+///
+/// The algorithm is Remco Bloemen's: CRT for 512-bit product,
+/// Newton-Raphson modular inverse. Needs wrapping arithmetic
+/// throughout since intermediate values intentionally overflow.
+#[arithmetic(unchecked)]
+pub fn mul_div(a: u256, b: u256, denominator: u256) -> u256 {
+    // 512-bit multiply [prod1 prod0] = a * b
+    let mm = ops::mulmod(a, b, 0 - 1)
+    let prod0 = a * b
+    let prod1 = mm - prod0 - if mm < prod0 { 1 } else { 0 }
+
+    // Simple case: result fits in 256 bits
+    if prod1 == 0 {
+        if denominator == 0 { ops::revert(0, 0) }
+        return prod0 / denominator
+    }
+
+    // Overflow check
+    if denominator <= prod1 { ops::revert(0, 0) }
+
+    // Subtract remainder to make division exact
+    let remainder = ops::mulmod(a, b, denominator)
+    let prod1 = prod1 - if remainder > prod0 { 1 } else { 0 }
+    let prod0 = prod0 - remainder
+
+    // Factor powers of two out of denominator
+    let twos = (0 - denominator) & denominator
+    let denominator = denominator / twos
+    let prod0 = prod0 / twos
+
+    // Shift prod1 bits into prod0
+    let twos_inv = (0 - twos) / twos + 1
+    let prod0 = prod0 | (prod1 * twos_inv)
+
+    // Modular inverse via Newton-Raphson (seed correct for 4 bits, double 6x)
+    let mut inv = (3 * denominator) ^ 2
+    inv = inv * (2 - denominator * inv)
+    inv = inv * (2 - denominator * inv)
+    inv = inv * (2 - denominator * inv)
+    inv = inv * (2 - denominator * inv)
+    inv = inv * (2 - denominator * inv)
+    inv = inv * (2 - denominator * inv)
+
+    prod0 * inv
+}
+
+/// ceil(a * b / denominator) with full precision.
+#[arithmetic(unchecked)]
+pub fn mul_div_rounding_up(a: u256, b: u256, denominator: u256) -> u256 {
+    let mut result = mul_div(a, b, denominator)
+    if ops::mulmod(a, b, denominator) > 0 {
+        if result == 0 - 1 { ops::revert(0, 0) }
+        result = result + 1
+    }
+    result
+}

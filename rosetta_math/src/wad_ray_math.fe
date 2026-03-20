@@ -1,0 +1,69 @@
+use std::evm::ops
+
+/// Fixed-point arithmetic with Wad (18 decimals) and Ray (27 decimals).
+/// Semantically equivalent to Aave V3 WadRayMath.sol.
+///
+/// Aave's Solidity version is 100% inline assembly because Solidity 0.8+
+/// checked arithmetic would revert on intermediate a*b even when the final
+/// result (a*b+half)/scale fits in u256. They check overflow manually, then
+/// use raw EVM MUL.
+///
+/// Fe version: the overflow checks guarantee intermediates fit, so Fe's
+/// default checked arithmetic works directly. No unchecked needed.
+
+const WAD: u256 = 1000000000000000000           // 1e18
+const HALF_WAD: u256 = 500000000000000000       // 0.5e18
+const RAY: u256 = 1000000000000000000000000000  // 1e27
+const HALF_RAY: u256 = 500000000000000000000000000  // 0.5e27
+const WAD_RAY_RATIO: u256 = 1000000000          // 1e9
+
+#[arithmetic(unchecked)]
+fn max_u256() -> u256 { 0 - 1 }
+
+/// (a * b + 0.5e18) / 1e18, rounded half-up.
+pub fn wad_mul(a: u256, b: u256) -> u256 {
+    if b != 0 {
+        if a > (max_u256() - HALF_WAD) / b { ops::revert(0, 0) }
+    }
+    (a * b + HALF_WAD) / WAD
+}
+
+/// (a * 1e18 + b/2) / b, rounded half-up.
+pub fn wad_div(a: u256, b: u256) -> u256 {
+    if b == 0 { ops::revert(0, 0) }
+    if a > (max_u256() - b / 2) / WAD { ops::revert(0, 0) }
+    (a * WAD + b / 2) / b
+}
+
+/// (a * b + 0.5e27) / 1e27, rounded half-up.
+pub fn ray_mul(a: u256, b: u256) -> u256 {
+    if b != 0 {
+        if a > (max_u256() - HALF_RAY) / b { ops::revert(0, 0) }
+    }
+    (a * b + HALF_RAY) / RAY
+}
+
+/// (a * 1e27 + b/2) / b, rounded half-up.
+pub fn ray_div(a: u256, b: u256) -> u256 {
+    if b == 0 { ops::revert(0, 0) }
+    if a > (max_u256() - b / 2) / RAY { ops::revert(0, 0) }
+    (a * RAY + b / 2) / b
+}
+
+/// Convert ray (27 decimals) to wad (18 decimals), rounded half-up.
+pub fn ray_to_wad(a: u256) -> u256 {
+    let remainder = a % WAD_RAY_RATIO
+    let result = a / WAD_RAY_RATIO
+    if remainder >= WAD_RAY_RATIO / 2 {
+        result + 1
+    } else {
+        result
+    }
+}
+
+/// Convert wad (18 decimals) to ray (27 decimals).
+pub fn wad_to_ray(a: u256) -> u256 {
+    let result = a * WAD_RAY_RATIO
+    if result / WAD_RAY_RATIO != a { ops::revert(0, 0) }
+    result
+}

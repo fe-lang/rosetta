@@ -1,0 +1,45 @@
+use std::evm::ops
+
+/// Fiat-Shamir transcript for non-interactive proof verification.
+///
+/// In Solidity verifiers, the transcript is managed by manually writing
+/// to scratch memory and calling the SHA256 precompile with hand-computed
+/// offsets. Every challenge derivation is a bespoke block of assembly.
+///
+/// Fe version: a Transcript with simple functions.
+
+pub struct Transcript {
+    pub ptr: u256,
+    pub offset: u256,
+}
+
+pub fn new_transcript(capacity: u256) -> Transcript {
+    Transcript {
+        ptr: std::evm::alloc(capacity),
+        offset: 0,
+    }
+}
+
+pub fn append(t: Transcript, value: u256) -> Transcript {
+    ops::mstore(t.ptr + t.offset, value)
+    Transcript { ptr: t.ptr, offset: t.offset + 32 }
+}
+
+/// Squeeze a challenge using SHA256 precompile, reduced mod MODULUS.
+pub fn squeeze_sha256<const MODULUS: u256>(t: Transcript) -> (u256, Transcript) {
+    let out = std::evm::alloc(32)
+    let success = ops::staticcall(ops::gas(), 2, t.ptr, t.offset, out, 32)
+    if success == 0 { ops::revert(0, 0) }
+    let challenge = ops::mload(out) % MODULUS
+    // Reset with challenge as seed
+    let new_t = append(Transcript { ptr: t.ptr, offset: 0 }, challenge)
+    (challenge, new_t)
+}
+
+/// Squeeze a challenge using keccak256, reduced mod MODULUS.
+pub fn squeeze_keccak<const MODULUS: u256>(t: Transcript) -> (u256, Transcript) {
+    let hash = ops::keccak256(t.ptr, t.offset)
+    let challenge = hash % MODULUS
+    let new_t = append(Transcript { ptr: t.ptr, offset: 0 }, challenge)
+    (challenge, new_t)
+}

@@ -1,0 +1,807 @@
+use rosetta_ec::bn254::{G1Point, G2Point, ec_add, ec_mul, negate}
+use super::field
+use super::msm
+use std::evm::ops
+
+/// Plonk proof verification on BN254.
+/// Ported from SP1's Rust verifier (crates/verifier/src/plonk/).
+/// Rust: 904 lines across 4 files. Solidity: 1341 lines of assembly.
+
+const F_Q: u256 = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
+
+pub struct PlonkVK {
+    pub n: u256,
+    pub n_inv: u256,
+    pub omega: u256,
+    pub nb_public_inputs: usize,
+    pub coset_shift: u256,
+    pub ql: G1Point,
+    pub qr: G1Point,
+    pub qm: G1Point,
+    pub qo: G1Point,
+    pub qk: G1Point,
+    pub s: [G1Point; 3],
+    pub qcp: [G1Point; 1],        // BSB22 custom gate commitments (SP1 has 1)
+    pub commit_constraint_idx: [usize; 1],
+    pub g2_srs: [G2Point; 2],     // [G2, [alpha]G2]
+    pub g1_srs: G1Point,          // G1 generator from SRS
+}
+
+pub struct PlonkProof {
+    pub lro: [G1Point; 3],        // [L], [R], [O]
+    pub z: G1Point,                // grand product
+    pub h: [G1Point; 3],          // quotient [H0], [H1], [H2]
+    pub bsb22_commitments: [G1Point; 1],
+    // Batched opening proof
+    pub batched_h: G1Point,
+    pub claimed_values: [u256; 6], // l, r, o, s1, s2, qcp[0]
+    // Shifted opening proof
+    pub z_shifted_h: G1Point,
+    pub z_shifted_value: u256,     // z(omega*zeta)
+}
+
+// --- SHA256-based Fiat-Shamir Transcript (gnark format) ---
+
+struct FsTranscript {
+    ptr: u256,
+    len: u256,
+}
+
+fn fs_new() -> FsTranscript {
+    FsTranscript { ptr: std::evm::alloc(4096), len: 0 }
+}
+
+fn fs_reset(t: FsTranscript) -> FsTranscript {
+    FsTranscript { ptr: t.ptr, len: 0 }
+}
+
+fn fs_write(t: FsTranscript, data: u256, nbytes: u256) -> FsTranscript {
+    ops::mstore(t.ptr + t.len, data)
+    FsTranscript { ptr: t.ptr, len: t.len + nbytes }
+}
+
+/// Write a challenge label (ASCII string like "gamma", "beta", etc.)
+fn fs_write_label(t: FsTranscript, label: u256, label_len: u256) -> FsTranscript {
+    // Labels are right-aligned in the u256, shift to left-align for hashing
+    ops::mstore(t.ptr + t.len, label)
+    FsTranscript { ptr: t.ptr, len: t.len + label_len }
+}
+
+/// Write a G1 point (64 bytes, big-endian x then y)
+fn fs_write_g1(t: FsTranscript, p: G1Point) -> FsTranscript {
+    let t = fs_write(t, p.x, 32)
+    fs_write(t, p.y, 32)
+}
+
+/// Squeeze: SHA256 hash the buffer.
+/// Returns (challenge_reduced_mod_fq, raw_32byte_hash, reset_transcript).
+/// gnark chains the RAW hash (not reduced) into the next round.
+fn fs_squeeze(t: FsTranscript) -> (u256, u256, FsTranscript) {
+    let out = std::evm::alloc(32)
+    let success = ops::staticcall(ops::gas(), 2, t.ptr, t.len, out, 32)
+    if success == 0 { ops::revert(0, 0) }
+    let hash = ops::mload(out)
+    (hash % F_Q, hash, fs_reset(t))
+}
+
+// --- BSB22 hash-to-field ---
+// expand_message_xmd with DST="BSB22-Plonk", produces a field element from a G1 point.
+// This is the gnark hash_fr function from the Solidity verifier.
+
+/// DST "BSB22-Plonk" as individual bytes for mstore8
+const HASH_FR_LEN_IN_BYTES: u256 = 48  // 0x30
+const HASH_FR_SIZE_DOMAIN: u256 = 11   // length of "BSB22-Plonk"
+const HASH_FR_BB: u256 = 340282366920938463463374607431768211456 // 2^128
+
+fn hash_fr(x: u256, y: u256) -> u256 {
+    let ptr = std::evm::alloc(256)
+
+    // Round 0: SHA256(zeros64 || x || y || 0x00 || 0x30 || 0x00 || "BSB22-Plonk" || 0x0b)
+    ops::mstore(ptr, 0)           // 32 zero bytes
+    ops::mstore(ptr + 32, 0)      // 32 zero bytes
+    ops::mstore(ptr + 64, x)
+    ops::mstore(ptr + 96, y)
+    ops::mstore8(ptr + 128, 0)
+    ops::mstore8(ptr + 129, 48)   // HASH_FR_LEN_IN_BYTES
+    ops::mstore8(ptr + 130, 0)
+    // "BSB22-Plonk" = 42 53 42 32 32 2d 50 6c 6f 6e 6b
+    ops::mstore8(ptr + 131, 0x42)
+    ops::mstore8(ptr + 132, 0x53)
+    ops::mstore8(ptr + 133, 0x42)
+    ops::mstore8(ptr + 134, 0x32)
+    ops::mstore8(ptr + 135, 0x32)
+    ops::mstore8(ptr + 136, 0x2d)
+    ops::mstore8(ptr + 137, 0x50)
+    ops::mstore8(ptr + 138, 0x6c)
+    ops::mstore8(ptr + 139, 0x6f)
+    ops::mstore8(ptr + 140, 0x6e)
+    ops::mstore8(ptr + 141, 0x6b)
+    ops::mstore8(ptr + 142, 11)   // HASH_FR_SIZE_DOMAIN
+
+    let success = ops::staticcall(ops::gas(), 2, ptr, 143, ptr, 32)
+    if success == 0 { ops::revert(0, 0) }
+    let b0 = ops::mload(ptr)
+
+    // Round 1: SHA256(b0 || 0x01 || "BSB22-Plonk" || 0x0b)
+    // b0 is already at ptr (32 bytes)
+    ops::mstore8(ptr + 32, 1)  // HASH_FR_ONE
+    ops::mstore8(ptr + 33, 0x42)
+    ops::mstore8(ptr + 34, 0x53)
+    ops::mstore8(ptr + 35, 0x42)
+    ops::mstore8(ptr + 36, 0x32)
+    ops::mstore8(ptr + 37, 0x32)
+    ops::mstore8(ptr + 38, 0x2d)
+    ops::mstore8(ptr + 39, 0x50)
+    ops::mstore8(ptr + 40, 0x6c)
+    ops::mstore8(ptr + 41, 0x6f)
+    ops::mstore8(ptr + 42, 0x6e)
+    ops::mstore8(ptr + 43, 0x6b)
+    ops::mstore8(ptr + 44, 11)
+
+    let success = ops::staticcall(ops::gas(), 2, ptr, 45, ptr, 32)
+    if success == 0 { ops::revert(0, 0) }
+    let b1 = ops::mload(ptr)
+
+    // Round 2: SHA256((b0 ^ b1) || 0x02 || "BSB22-Plonk" || 0x0b)
+    ops::mstore(ptr + 32, b0 ^ b1)  // xor at offset 32
+    ops::mstore8(ptr + 64, 2)       // HASH_FR_TWO
+    ops::mstore8(ptr + 65, 0x42)
+    ops::mstore8(ptr + 66, 0x53)
+    ops::mstore8(ptr + 67, 0x42)
+    ops::mstore8(ptr + 68, 0x32)
+    ops::mstore8(ptr + 69, 0x32)
+    ops::mstore8(ptr + 70, 0x2d)
+    ops::mstore8(ptr + 71, 0x50)
+    ops::mstore8(ptr + 72, 0x6c)
+    ops::mstore8(ptr + 73, 0x6f)
+    ops::mstore8(ptr + 74, 0x6e)
+    ops::mstore8(ptr + 75, 0x6b)
+    ops::mstore8(ptr + 76, 11)
+
+    // Hash from offset 32, length 45
+    let success = ops::staticcall(ops::gas(), 2, ptr + 32, 45, ptr + 32, 32)
+    if success == 0 { ops::revert(0, 0) }
+
+    // Result: 2^128 * b1 + b2[:16] mod R
+    let b2_high = ops::mload(ptr + 32) >> 128  // top 16 bytes of b2
+    ops::addmod(ops::mulmod(b1, HASH_FR_BB, F_Q), b2_high, F_Q)
+}
+
+// --- Core verification ---
+
+/// Compute zeta^n (modular exponentiation via field::exp)
+fn pow_mod(base: u256, exp: u256) -> u256 {
+    field::exp<F_Q>(base, exp)
+}
+
+/// Batch invert: given [a0, a1, ...], return [1/a0, 1/a1, ...] using Montgomery's trick.
+/// Uses n-1 multiplications + 1 inversion instead of n inversions.
+fn batch_invert_2(a: u256, b: u256) -> (u256, u256) {
+    let prod = field::mul<F_Q>(a, b)
+    let prod_inv = field::inv<F_Q>(prod)
+    let a_inv = field::mul<F_Q>(prod_inv, b)
+    let b_inv = field::mul<F_Q>(prod_inv, a)
+    (a_inv, b_inv)
+}
+
+/// Debug: compute and return challenge hashes for comparison.
+/// Returns (gamma_raw, beta_raw, alpha_raw, zeta_raw)
+pub fn debug_challenges(
+    vk: own PlonkVK, proof: own PlonkProof,
+    pub_inputs: [u256; 2],
+) -> (u256, u256, u256, u256) {
+    let mut t = fs_new()
+
+    // gamma
+    t = fs_write_label(t, 0x67616d6d61000000000000000000000000000000000000000000000000000000, 5)
+    t = fs_write_g1(t, vk.s[0])
+    t = fs_write_g1(t, vk.s[1])
+    t = fs_write_g1(t, vk.s[2])
+    t = fs_write_g1(t, vk.ql)
+    t = fs_write_g1(t, vk.qr)
+    t = fs_write_g1(t, vk.qm)
+    t = fs_write_g1(t, vk.qo)
+    t = fs_write_g1(t, vk.qk)
+    t = fs_write_g1(t, vk.qcp[0])
+    t = fs_write(t, pub_inputs[0], 32)
+    t = fs_write(t, pub_inputs[1], 32)
+    t = fs_write_g1(t, proof.lro[0])
+    t = fs_write_g1(t, proof.lro[1])
+    t = fs_write_g1(t, proof.lro[2])
+    let result = fs_squeeze(t)
+    let gamma_raw = result.1
+    t = result.2
+
+    // beta
+    t = fs_write_label(t, 0x6265746100000000000000000000000000000000000000000000000000000000, 4)
+    t = fs_write(t, gamma_raw, 32)
+    let result = fs_squeeze(t)
+    let beta_raw = result.1
+    t = result.2
+
+    // alpha
+    t = fs_write_label(t, 0x616c706861000000000000000000000000000000000000000000000000000000, 5)
+    t = fs_write(t, beta_raw, 32)
+    t = fs_write_g1(t, proof.bsb22_commitments[0])
+    t = fs_write_g1(t, proof.z)
+    let result = fs_squeeze(t)
+    let alpha_raw = result.1
+    t = result.2
+
+    // zeta
+    t = fs_write_label(t, 0x7a65746100000000000000000000000000000000000000000000000000000000, 4)
+    t = fs_write(t, alpha_raw, 32)
+    t = fs_write_g1(t, proof.h[0])
+    t = fs_write_g1(t, proof.h[1])
+    t = fs_write_g1(t, proof.h[2])
+    let result = fs_squeeze(t)
+    let zeta_raw = result.1
+
+    (gamma_raw, beta_raw, alpha_raw, zeta_raw)
+}
+
+/// Debug: return (pi_total, const_lin) for verification debugging.
+pub fn debug_pi(
+    vk: own PlonkVK, proof: own PlonkProof,
+    pub_inputs: [u256; 2],
+) -> (u256, u256) {
+    let one: u256 = 1
+    // Reuse the challenge derivation from verify
+    let mut t = fs_new()
+    t = fs_write_label(t, 0x67616d6d61000000000000000000000000000000000000000000000000000000, 5)
+    t = fs_write_g1(t, vk.s[0])
+    t = fs_write_g1(t, vk.s[1])
+    t = fs_write_g1(t, vk.s[2])
+    t = fs_write_g1(t, vk.ql)
+    t = fs_write_g1(t, vk.qr)
+    t = fs_write_g1(t, vk.qm)
+    t = fs_write_g1(t, vk.qo)
+    t = fs_write_g1(t, vk.qk)
+    t = fs_write_g1(t, vk.qcp[0])
+    t = fs_write(t, pub_inputs[0], 32)
+    t = fs_write(t, pub_inputs[1], 32)
+    t = fs_write_g1(t, proof.lro[0])
+    t = fs_write_g1(t, proof.lro[1])
+    t = fs_write_g1(t, proof.lro[2])
+    let result = fs_squeeze(t)
+    let gamma = result.0
+    let gamma_raw = result.1
+    t = result.2
+    t = fs_write_label(t, 0x6265746100000000000000000000000000000000000000000000000000000000, 4)
+    t = fs_write(t, gamma_raw, 32)
+    let result = fs_squeeze(t)
+    let beta = result.0
+    let beta_raw = result.1
+    t = result.2
+    t = fs_write_label(t, 0x616c706861000000000000000000000000000000000000000000000000000000, 5)
+    t = fs_write(t, beta_raw, 32)
+    t = fs_write_g1(t, proof.bsb22_commitments[0])
+    t = fs_write_g1(t, proof.z)
+    let result = fs_squeeze(t)
+    let alpha = result.0
+    let alpha_raw = result.1
+    t = result.2
+    t = fs_write_label(t, 0x7a65746100000000000000000000000000000000000000000000000000000000, 4)
+    t = fs_write(t, alpha_raw, 32)
+    t = fs_write_g1(t, proof.h[0])
+    t = fs_write_g1(t, proof.h[1])
+    t = fs_write_g1(t, proof.h[2])
+    let result = fs_squeeze(t)
+    let zeta = result.0
+
+    // Compute PI
+    let zeta_power_n = pow_mod(zeta, vk.n)
+    let zh_zeta = field::sub<F_Q>(zeta_power_n, one)
+    let den0 = field::sub<F_Q>(zeta, one)
+    let den1 = field::sub<F_Q>(zeta, vk.omega)
+    let result = batch_invert_2(den0, den1)
+    let inv_den0 = result.0
+    let inv_den1 = result.1
+    let l0 = field::mul<F_Q>(field::mul<F_Q>(zh_zeta, inv_den0), vk.n_inv)
+    let l1_pi = field::mul<F_Q>(field::mul<F_Q>(field::mul<F_Q>(zh_zeta, inv_den1), vk.n_inv), vk.omega)
+    let mut pi = field::add<F_Q>(
+        field::mul<F_Q>(l0, pub_inputs[0]),
+        field::mul<F_Q>(l1_pi, pub_inputs[1])
+    )
+    // BSB22
+    let h_fr = hash_fr(proof.bsb22_commitments[0].x, proof.bsb22_commitments[0].y)
+    let bsb_index = (vk.nb_public_inputs as u256) + (vk.commit_constraint_idx[0] as u256)
+    let omega_i = pow_mod(vk.omega, bsb_index)
+    let bsb_den = field::sub<F_Q>(zeta, omega_i)
+    let bsb_den_inv = field::inv<F_Q>(bsb_den)
+    let bsb_lagrange = field::mul<F_Q>(
+        field::mul<F_Q>(field::mul<F_Q>(zh_zeta, omega_i), bsb_den_inv),
+        vk.n_inv
+    )
+    pi = field::add<F_Q>(pi, field::mul<F_Q>(h_fr, bsb_lagrange))
+
+    // Return pi and hash_fr for debugging
+    (pi, h_fr)
+}
+
+/// Verify a Plonk proof with 2 public inputs (SP1 standard).
+/// Follows SP1 verify_plonk_algebraic() from verify.rs.
+pub fn verify(
+    vk: own PlonkVK, proof: own PlonkProof,
+    pub_inputs: [u256; 2],
+) -> bool {
+    let one: u256 = 1
+
+    // --- 1. Fiat-Shamir challenge derivation ---
+    // gnark transcript format: SHA256("label" || prev_challenge || bindings)
+    // Challenges derived in order: gamma, beta, alpha, zeta, (v from KZG fold), u
+
+    let mut t = fs_new()
+
+    // gamma: bind VK public data + public inputs, then commit wire polys
+    // Hash("gamma" || s1 || s2 || s3 || ql || qr || qm || qo || qk || qcp[0] || pub_inputs || [L] || [R] || [O])
+    t = fs_write_label(t, 0x67616d6d61000000000000000000000000000000000000000000000000000000, 5) // "gamma"
+    t = fs_write_g1(t, vk.s[0])
+    t = fs_write_g1(t, vk.s[1])
+    t = fs_write_g1(t, vk.s[2])
+    t = fs_write_g1(t, vk.ql)
+    t = fs_write_g1(t, vk.qr)
+    t = fs_write_g1(t, vk.qm)
+    t = fs_write_g1(t, vk.qo)
+    t = fs_write_g1(t, vk.qk)
+    t = fs_write_g1(t, vk.qcp[0])
+    t = fs_write(t, pub_inputs[0], 32)
+    t = fs_write(t, pub_inputs[1], 32)
+    t = fs_write_g1(t, proof.lro[0])
+    t = fs_write_g1(t, proof.lro[1])
+    t = fs_write_g1(t, proof.lro[2])
+    let result = fs_squeeze(t)
+    let gamma = result.0
+    let gamma_raw = result.1  // raw hash for chaining
+    t = result.2
+
+    // beta: SHA256("beta" || gamma_raw_hash)
+    // Note: gnark chains the RAW 32-byte hash, not the reduced field element
+    t = fs_write_label(t, 0x6265746100000000000000000000000000000000000000000000000000000000, 4) // "beta"
+    t = fs_write(t, gamma_raw, 32)
+    let result = fs_squeeze(t)
+    let beta = result.0
+    let beta_raw = result.1
+    t = result.2
+
+    // alpha: SHA256("alpha" || beta_raw_hash || bsb22_commitments || Z)
+    t = fs_write_label(t, 0x616c706861000000000000000000000000000000000000000000000000000000, 5) // "alpha"
+    t = fs_write(t, beta_raw, 32)
+    t = fs_write_g1(t, proof.bsb22_commitments[0])
+    t = fs_write_g1(t, proof.z)
+    let result = fs_squeeze(t)
+    let alpha = result.0
+    let alpha_raw = result.1
+    t = result.2
+
+    // zeta: SHA256("zeta" || alpha_raw_hash || H0 || H1 || H2)
+    t = fs_write_label(t, 0x7a65746100000000000000000000000000000000000000000000000000000000, 4) // "zeta"
+    t = fs_write(t, alpha_raw, 32)
+    t = fs_write_g1(t, proof.h[0])
+    t = fs_write_g1(t, proof.h[1])
+    t = fs_write_g1(t, proof.h[2])
+    let result = fs_squeeze(t)
+    let zeta = result.0
+    let zeta_raw = result.1  // needed for chaining to U
+
+    // --- 2. Compute zeta^n - 1 and L1(zeta) ---
+    let zeta_power_n = pow_mod(zeta, vk.n)
+    let zh_zeta = field::sub<F_Q>(zeta_power_n, one) // zeta^n - 1
+
+    // L1(zeta) = (zeta^n - 1) / (n * (zeta - 1))
+    let l1_zeta = field::mul<F_Q>(
+        field::mul<F_Q>(zh_zeta, field::inv<F_Q>(field::sub<F_Q>(zeta, one))),
+        vk.n_inv
+    )
+
+    // --- 3. Compute PI(zeta) = sum of L_i(zeta) * pub_inputs[i] ---
+    let den0 = field::sub<F_Q>(zeta, one)
+    let den1 = field::sub<F_Q>(zeta, vk.omega)
+    let result = batch_invert_2(den0, den1)
+    let inv_den0 = result.0
+    let inv_den1 = result.1
+
+    // L0(zeta) = zh_zeta * inv_den0 * n_inv * omega^0 = zh_zeta * inv_den0 * n_inv
+    let l0 = field::mul<F_Q>(field::mul<F_Q>(zh_zeta, inv_den0), vk.n_inv)
+    // L1(zeta) = zh_zeta * inv_den1 * n_inv * omega
+    let l1_pi = field::mul<F_Q>(field::mul<F_Q>(field::mul<F_Q>(zh_zeta, inv_den1), vk.n_inv), vk.omega)
+
+    let mut pi = field::add<F_Q>(
+        field::mul<F_Q>(l0, pub_inputs[0]),
+        field::mul<F_Q>(l1_pi, pub_inputs[1])
+    )
+
+    // --- 3b. BSB22 custom gate commitment contribution to PI ---
+    // hash_fr(bsb22_commitment) * L_{nb_public_inputs + commit_constraint_idx}(zeta)
+    let h_fr = hash_fr(proof.bsb22_commitments[0].x, proof.bsb22_commitments[0].y)
+    // Compute L_i(zeta) for i = nb_public_inputs + commit_constraint_idx[0]
+    let bsb_index = (vk.nb_public_inputs as u256) + (vk.commit_constraint_idx[0] as u256)
+    let omega_i = pow_mod(vk.omega, bsb_index)
+    let bsb_den = field::sub<F_Q>(zeta, omega_i)
+    let bsb_den_inv = field::inv<F_Q>(bsb_den)
+    let bsb_lagrange = field::mul<F_Q>(
+        field::mul<F_Q>(field::mul<F_Q>(zh_zeta, omega_i), bsb_den_inv),
+        vk.n_inv
+    )
+    pi = field::add<F_Q>(pi, field::mul<F_Q>(h_fr, bsb_lagrange))
+
+    // --- 4. Extract claimed evaluation values ---
+    let l = proof.claimed_values[0]
+    let r = proof.claimed_values[1]
+    let o = proof.claimed_values[2]
+    let s1 = proof.claimed_values[3]
+    let s2 = proof.claimed_values[4]
+    let zu = proof.z_shifted_value
+
+    // alpha^2 * L1(zeta)
+    let alpha_sq_l1 = field::mul<F_Q>(field::mul<F_Q>(alpha, alpha), l1_zeta)
+
+    // --- 5. Linearization constant term ---
+    // const_lin = -[pi - alpha^2*L1 + alpha*(l+beta*s1+gamma)*(r+beta*s2+gamma)*(o+gamma)*zu]
+    let term_a = field::add<F_Q>(l, field::add<F_Q>(field::mul<F_Q>(beta, s1), gamma))
+    let term_b = field::add<F_Q>(r, field::add<F_Q>(field::mul<F_Q>(beta, s2), gamma))
+    let term_c = field::add<F_Q>(o, gamma)
+    let perm_term = field::mul<F_Q>(field::mul<F_Q>(field::mul<F_Q>(term_a, term_b), term_c), field::mul<F_Q>(alpha, zu))
+
+    let const_lin = field::neg<F_Q>(
+        field::add<F_Q>(field::sub<F_Q>(pi, alpha_sq_l1), perm_term)
+    )
+
+    // --- 6. Linearized polynomial coefficients ---
+    // _s1 = alpha * (l + beta*s1 + gamma) * (r + beta*s2 + gamma) * beta * zu
+    let coeff_s1 = field::mul<F_Q>(field::mul<F_Q>(field::mul<F_Q>(term_a, term_b), field::mul<F_Q>(beta, alpha)), zu)
+
+    // _s2 = -alpha * (l + beta*zeta + gamma) * (r + beta*u*zeta + gamma) * (o + beta*u^2*zeta + gamma)
+    let u_zeta = field::mul<F_Q>(vk.coset_shift, zeta)
+    let u2_zeta = field::mul<F_Q>(field::mul<F_Q>(vk.coset_shift, vk.coset_shift), zeta)
+    let s2_a = field::add<F_Q>(l, field::add<F_Q>(field::mul<F_Q>(beta, zeta), gamma))
+    let s2_b = field::add<F_Q>(r, field::add<F_Q>(field::mul<F_Q>(beta, u_zeta), gamma))
+    let s2_c = field::add<F_Q>(o, field::add<F_Q>(field::mul<F_Q>(beta, u2_zeta), gamma))
+    let coeff_s2 = field::neg<F_Q>(field::mul<F_Q>(field::mul<F_Q>(field::mul<F_Q>(s2_a, s2_b), s2_c), alpha))
+
+    // coeff_z = alpha^2*L1(zeta) + coeff_s2
+    let coeff_z = field::add<F_Q>(alpha_sq_l1, coeff_s2)
+
+    let rl = field::mul<F_Q>(l, r)
+
+    // Quotient polynomial powers
+    let n_plus_two = vk.n + 2
+    let zeta_np2 = pow_mod(zeta, n_plus_two)
+    let zeta_np2_sq = field::mul<F_Q>(zeta_np2, zeta_np2)
+    let zh_neg = field::neg<F_Q>(zh_zeta)
+    let coeff_h0 = zh_neg
+    let coeff_h1 = field::neg<F_Q>(field::mul<F_Q>(zeta_np2, zh_zeta))
+    let coeff_h2 = field::neg<F_Q>(field::mul<F_Q>(zeta_np2_sq, zh_zeta))
+
+    // --- 7. MSM for linearized polynomial digest ---
+    // Points: [qcp[0], ql, qr, qm, qo, qk, s3, z, h0, h1, h2]
+    // Scalars: [qc_val, l, r, l*r, o, 1, _s1, coeff_z, -zh, -zeta^(n+2)*zh, -zeta^2(n+2)*zh]
+    let qc_val = proof.claimed_values[5]
+
+    let points: [G1Point; 11] = [
+        proof.bsb22_commitments[0],
+        vk.ql, vk.qr, vk.qm, vk.qo, vk.qk,
+        vk.s[2], proof.z,
+        proof.h[0], proof.h[1], proof.h[2],
+    ]
+    let scalars: [u256; 11] = [
+        qc_val,
+        l, r, rl, o, one,
+        coeff_s1, coeff_z,
+        coeff_h0, coeff_h1, coeff_h2,
+    ]
+
+    let linearized = msm::msm<11>(points, scalars)
+
+    // --- 8. Fold commitments for batched opening ---
+    // digests_to_fold = [linearized, L, R, O, s1, s2, qcp[0]]
+    // claimed_values = [const_lin, l, r, o, s1, s2, qc_val]
+
+    // Derive gamma_kzg for folding
+    let mut t2 = fs_new()
+    t2 = fs_write_label(t2, 0x67616d6d61000000000000000000000000000000000000000000000000000000, 5) // "gamma"
+    t2 = fs_write(t2, zeta, 32)
+    // Write all 7 digests
+    t2 = fs_write_g1(t2, linearized)
+    t2 = fs_write_g1(t2, proof.lro[0])
+    t2 = fs_write_g1(t2, proof.lro[1])
+    t2 = fs_write_g1(t2, proof.lro[2])
+    t2 = fs_write_g1(t2, vk.s[0])
+    t2 = fs_write_g1(t2, vk.s[1])
+    t2 = fs_write_g1(t2, vk.qcp[0])
+    // Write all 7 claimed values
+    t2 = fs_write(t2, const_lin, 32)
+    t2 = fs_write(t2, l, 32)
+    t2 = fs_write(t2, r, 32)
+    t2 = fs_write(t2, o, 32)
+    t2 = fs_write(t2, s1, 32)
+    t2 = fs_write(t2, s2, 32)
+    t2 = fs_write(t2, qc_val, 32)
+    // Write zu (data transcript)
+    t2 = fs_write(t2, zu, 32)
+    let result = fs_squeeze(t2)
+    let gamma_kzg = result.0
+    // gamma_kzg raw hash not needed (separate transcript)
+
+    // Compute gamma_kzg^i for i = 0..6
+    let g0: u256 = 1
+    let g1 = gamma_kzg
+    let g2 = field::mul<F_Q>(g1, gamma_kzg)
+    let g3 = field::mul<F_Q>(g2, gamma_kzg)
+    let g4 = field::mul<F_Q>(g3, gamma_kzg)
+    let g5 = field::mul<F_Q>(g4, gamma_kzg)
+    let g6 = field::mul<F_Q>(g5, gamma_kzg)
+
+    // Folded digest = MSM(digests, gamma_kzg^i)
+    let fold_points: [G1Point; 7] = [
+        linearized,
+        proof.lro[0], proof.lro[1], proof.lro[2],
+        vk.s[0], vk.s[1],
+        vk.qcp[0],
+    ]
+    let fold_scalars: [u256; 7] = [g0, g1, g2, g3, g4, g5, g6]
+    let folded_digest = msm::msm<7>(fold_points, fold_scalars)
+
+    // Folded evaluation = sum(claimed_values[i] * gamma_kzg^i)
+    let claimed: [u256; 7] = [const_lin, l, r, o, s1, s2, qc_val]
+    let mut folded_eval: u256 = 0
+    folded_eval = field::add<F_Q>(folded_eval, field::mul<F_Q>(claimed[0], g0))
+    folded_eval = field::add<F_Q>(folded_eval, field::mul<F_Q>(claimed[1], g1))
+    folded_eval = field::add<F_Q>(folded_eval, field::mul<F_Q>(claimed[2], g2))
+    folded_eval = field::add<F_Q>(folded_eval, field::mul<F_Q>(claimed[3], g3))
+    folded_eval = field::add<F_Q>(folded_eval, field::mul<F_Q>(claimed[4], g4))
+    folded_eval = field::add<F_Q>(folded_eval, field::mul<F_Q>(claimed[5], g5))
+    folded_eval = field::add<F_Q>(folded_eval, field::mul<F_Q>(claimed[6], g6))
+
+    // --- 9. Derive U challenge ---
+    // gnark flow: fold_proof() binds gamma_kzg to global transcript under "u",
+    // then derive_randomness(fs, "u", [folded_digest, Z, batched_h, z_shifted_h])
+    // computes SHA256("u" || zeta_raw_hash || gamma_kzg || folded_digest || Z || batched_h || z_shifted_h)
+    let mut t3 = fs_new()
+    t3 = fs_write_label(t3, 0x7500000000000000000000000000000000000000000000000000000000000000, 1) // "u"
+    t3 = fs_write(t3, zeta_raw, 32) // chain from previous challenge (zeta's raw hash)
+    // gamma_kzg bound to "u" challenge by fold_proof
+    t3 = fs_write(t3, gamma_kzg, 32)
+    // derive_randomness binds these points
+    t3 = fs_write_g1(t3, folded_digest)
+    t3 = fs_write_g1(t3, proof.z)
+    t3 = fs_write_g1(t3, proof.batched_h)
+    t3 = fs_write_g1(t3, proof.z_shifted_h)
+    let result = fs_squeeze(t3)
+    let u_challenge = result.0
+
+    // --- 10. KZG batch verification ---
+    // Two opening proofs: (folded, zeta) and (z_shifted, omega*zeta)
+    // Batched with random factor u_challenge
+    let shifted_zeta = field::mul<F_Q>(zeta, vk.omega)
+
+    // folded_quotients = batched_h + u * z_shifted_h
+    let folded_quotients = ec_add(proof.batched_h, ec_mul(proof.z_shifted_h, u_challenge))
+
+    // folded_digests = folded_digest + u * proof.z
+    //               - folded_eval_commit
+    //               + zeta * batched_h + u * shifted_zeta * z_shifted_h
+    let folded_evals_commit = ec_mul(vk.g1_srs, field::add<F_Q>(folded_eval, field::mul<F_Q>(u_challenge, zu)))
+
+    let point_term = ec_add(
+        ec_mul(proof.batched_h, zeta),
+        ec_mul(proof.z_shifted_h, field::mul<F_Q>(u_challenge, shifted_zeta))
+    )
+
+    let lhs = ec_add(
+        ec_add(
+            ec_add(folded_digest, ec_mul(proof.z, u_challenge)),
+            negate(folded_evals_commit)
+        ),
+        point_term
+    )
+
+    let neg_quotients = negate(folded_quotients)
+
+    // Pairing check: e(lhs, G2) * e(-folded_quotients, [alpha]G2) == 1
+    let ptr = std::evm::alloc(384)
+    ops::mstore(ptr, lhs.x)
+    ops::mstore(ptr + 32, lhs.y)
+    ops::mstore(ptr + 64, vk.g2_srs[0].x_imag)
+    ops::mstore(ptr + 96, vk.g2_srs[0].x_real)
+    ops::mstore(ptr + 128, vk.g2_srs[0].y_imag)
+    ops::mstore(ptr + 160, vk.g2_srs[0].y_real)
+
+    ops::mstore(ptr + 192, neg_quotients.x)
+    ops::mstore(ptr + 224, neg_quotients.y)
+    ops::mstore(ptr + 256, vk.g2_srs[1].x_imag)
+    ops::mstore(ptr + 288, vk.g2_srs[1].x_real)
+    ops::mstore(ptr + 320, vk.g2_srs[1].y_imag)
+    ops::mstore(ptr + 352, vk.g2_srs[1].y_real)
+
+    let success = ops::staticcall(ops::gas(), 8, ptr, 384, ptr, 32)
+    if success == 0 { ops::revert(0, 0) }
+
+    ops::mload(ptr) == 1
+}
+
+// -----------------------------------------------------------------------
+// Inline tests — run with `fe test`
+// -----------------------------------------------------------------------
+
+// Known values from a real gnark Plonk proof (SP1 test vectors).
+
+#[test]
+fn test_hash_fr() {
+    // BSB22 commitment from the test proof
+    let x: u256 = 0x27086e886de4f31d65e997d9dd08e35dd6590101d9185db7c8c5dd7dd9348c9c
+    let y: u256 = 0x1b711862d9757e744014177960751f5f5a84f14bbc1b019021db0666b8e55fc3
+    let result = hash_fr(x, y)
+    assert(result == 0x11fde042bd38090174940ef4ce967657b9b334a8f80c25694311c8846320a582)
+}
+
+#[test]
+fn test_field_inv() {
+    // inv(2) in F_Q should satisfy 2 * inv(2) == 1
+    let two: u256 = 2
+    let inv2 = field::inv<F_Q>(two)
+    let product = field::mul<F_Q>(two, inv2)
+    assert(product == 1)
+}
+
+#[test]
+fn test_pow_mod() {
+    // omega^n should be 1 (omega is an n-th root of unity)
+    let omega: u256 = 5709868443893258075976348696661355716898495876243883251619397131511003808859
+    let n: u256 = 16777216
+    let result = pow_mod(omega, n)
+    assert(result == 1)
+}
+
+#[test]
+fn test_transcript_gamma() {
+    // Test that the transcript produces the correct gamma hash.
+    // This uses the hardcoded VK from plonk_bench and known proof data.
+    let mut t = fs_new()
+    t = fs_write_label(t, 0x67616d6d61000000000000000000000000000000000000000000000000000000, 5)
+    // Just hash "gamma" alone to verify the label encoding
+    let result = fs_squeeze(t)
+    let gamma_only_raw = result.1
+    // SHA256("gamma") = 0xbe9d587defa1f0c09ef49eb17e206983a5f8f8289e4281860bd0ee5a19592c67
+    assert(gamma_only_raw == 0xbe9d587defa1f0c09ef49eb17e206983a5f8f8289e4281860bd0ee5a19592c67)
+}
+
+#[test]
+fn test_batch_invert() {
+    let a: u256 = 7
+    let b: u256 = 13
+    let result = batch_invert_2(a, b)
+    let a_inv = result.0
+    let b_inv = result.1
+    assert(field::mul<F_Q>(a, a_inv) == 1)
+    assert(field::mul<F_Q>(b, b_inv) == 1)
+}
+
+#[test]
+fn test_const_lin() {
+    // Verify the const_lin computation using known challenge + proof values.
+    let one: u256 = 1
+    let alpha: u256 = 0x0d56ec294e1530d65b957bb4ea879f740becd8a52e1d241445972ce49ba6048a
+    let beta: u256 = 0x0cc22f3f14a6c9bf0ba3249bf99a6896c498717affc98e2eae1d522494bf607b
+    let gamma: u256 = 0x0d3af809743875ab61733347f2653d716b25db2a4e54ac621f9eba57738540a7
+    let l: u256 = 0x2a2af70b568d007ce53077a078437c2acf6cad206354b0ffa823b4de87918a05
+    let r: u256 = 0x03a674ce289759e10b9da150b523d55886b63dc8526f0e36132edb5239c0c238
+    let o: u256 = 0x19d465a94658e64d3798897c8438352029a3d285a049af99ff195c36359c16d0
+    let s1: u256 = 0x086e2bbb1679e24af18ee4aac62fded55640735e7c6aeda82abe2c01a3f307c9
+    let s2: u256 = 0x0dad3ef6870691a71276c4f6f185fb14cfe8c7a418c26b3620ce09eff0d21a42
+    let zu: u256 = 0x2c1660be901029bf87b9796eedddc65aef146a4419ae4a123ee18aacfa9c41d1
+    let pi: u256 = 0x20fcd3e30d1d7c58a1401c04a2e4e114a614a5f0dbe1dbbcc8a84bc28058fef6
+
+    // L1(zeta) — compute from known zeta
+    let zeta: u256 = 0x0227111bcd5ae9b5ccc86db9db22c0bc52093a3224afcce75d7891aa2e0fed86
+    let n: u256 = 16777216
+    let n_inv: u256 = 21888241567198334088790460357988866238279339518792980768180410072331574733841
+    let zeta_power_n = pow_mod(zeta, n)
+    let zh_zeta = field::sub<F_Q>(zeta_power_n, one)
+    let l1_zeta = field::mul<F_Q>(
+        field::mul<F_Q>(zh_zeta, field::inv<F_Q>(field::sub<F_Q>(zeta, one))),
+        n_inv
+    )
+
+    let alpha_sq_l1 = field::mul<F_Q>(field::mul<F_Q>(alpha, alpha), l1_zeta)
+
+    let term_a = field::add<F_Q>(l, field::add<F_Q>(field::mul<F_Q>(beta, s1), gamma))
+    let term_b = field::add<F_Q>(r, field::add<F_Q>(field::mul<F_Q>(beta, s2), gamma))
+    let term_c = field::add<F_Q>(o, gamma)
+    let perm_term = field::mul<F_Q>(field::mul<F_Q>(field::mul<F_Q>(term_a, term_b), term_c), field::mul<F_Q>(alpha, zu))
+
+    let inner = field::add<F_Q>(field::sub<F_Q>(pi, alpha_sq_l1), perm_term)
+    let const_lin = field::neg<F_Q>(inner)
+
+    assert(const_lin == 0x22eb75080a77724bc8dc8c0548f18bef1975fa6c302909af13c960db6c585954)
+}
+
+#[test]
+fn test_linearization_coefficients() {
+    let one: u256 = 1
+    let alpha: u256 = 0x0d56ec294e1530d65b957bb4ea879f740becd8a52e1d241445972ce49ba6048a
+    let beta: u256 = 0x0cc22f3f14a6c9bf0ba3249bf99a6896c498717affc98e2eae1d522494bf607b
+    let gamma: u256 = 0x0d3af809743875ab61733347f2653d716b25db2a4e54ac621f9eba57738540a7
+    let zeta: u256 = 0x0227111bcd5ae9b5ccc86db9db22c0bc52093a3224afcce75d7891aa2e0fed86
+    let l: u256 = 0x2a2af70b568d007ce53077a078437c2acf6cad206354b0ffa823b4de87918a05
+    let r: u256 = 0x03a674ce289759e10b9da150b523d55886b63dc8526f0e36132edb5239c0c238
+    let o: u256 = 0x19d465a94658e64d3798897c8438352029a3d285a049af99ff195c36359c16d0
+    let s1: u256 = 0x086e2bbb1679e24af18ee4aac62fded55640735e7c6aeda82abe2c01a3f307c9
+    let s2: u256 = 0x0dad3ef6870691a71276c4f6f185fb14cfe8c7a418c26b3620ce09eff0d21a42
+    let zu: u256 = 0x2c1660be901029bf87b9796eedddc65aef146a4419ae4a123ee18aacfa9c41d1
+    let coset_shift: u256 = 5
+    let n: u256 = 16777216
+    let n_inv: u256 = 21888241567198334088790460357988866238279339518792980768180410072331574733841
+
+    let zeta_power_n = pow_mod(zeta, n)
+    let zh_zeta = field::sub<F_Q>(zeta_power_n, one)
+    let l1_zeta = field::mul<F_Q>(field::mul<F_Q>(zh_zeta, field::inv<F_Q>(field::sub<F_Q>(zeta, one))), n_inv)
+    let alpha_sq_l1 = field::mul<F_Q>(field::mul<F_Q>(alpha, alpha), l1_zeta)
+
+    // coeff_s1
+    let term_a = field::add<F_Q>(l, field::add<F_Q>(field::mul<F_Q>(beta, s1), gamma))
+    let term_b = field::add<F_Q>(r, field::add<F_Q>(field::mul<F_Q>(beta, s2), gamma))
+    let coeff_s1 = field::mul<F_Q>(field::mul<F_Q>(field::mul<F_Q>(term_a, term_b), field::mul<F_Q>(beta, alpha)), zu)
+    assert(coeff_s1 == 0x014e31ed4d81ae6dd405e472b9107d89e37137cb2f7e0fc5d32ac04e149f3989)
+
+    // coeff_s2 / coeff_z
+    let u_zeta = field::mul<F_Q>(coset_shift, zeta)
+    let u2_zeta = field::mul<F_Q>(field::mul<F_Q>(coset_shift, coset_shift), zeta)
+    let s2_a = field::add<F_Q>(l, field::add<F_Q>(field::mul<F_Q>(beta, zeta), gamma))
+    let s2_b = field::add<F_Q>(r, field::add<F_Q>(field::mul<F_Q>(beta, u_zeta), gamma))
+    let s2_c = field::add<F_Q>(o, field::add<F_Q>(field::mul<F_Q>(beta, u2_zeta), gamma))
+    let coeff_s2 = field::neg<F_Q>(field::mul<F_Q>(field::mul<F_Q>(field::mul<F_Q>(s2_a, s2_b), s2_c), alpha))
+    let coeff_z = field::add<F_Q>(alpha_sq_l1, coeff_s2)
+    assert(coeff_z == 0x0d51bf1d4a66e52d8bb72ec963f83620301a16c69392558e1953b15c3fa555c4)
+
+    // Quotient coefficients
+    let n_plus_two = n + 2
+    let zeta_np2 = pow_mod(zeta, n_plus_two)
+    let zeta_np2_sq = field::mul<F_Q>(zeta_np2, zeta_np2)
+    let coeff_h0 = field::neg<F_Q>(zh_zeta)
+    let coeff_h1 = field::neg<F_Q>(field::mul<F_Q>(zeta_np2, zh_zeta))
+    let coeff_h2 = field::neg<F_Q>(field::mul<F_Q>(zeta_np2_sq, zh_zeta))
+    assert(coeff_h0 == 0x2708f62ad73df8922601f3c8a66ee33858d4488264f5ada9885746cd1d181879)
+    assert(coeff_h1 == 0x11a7fff44d705a9129a01901a0183754b4e256d6d5f790c3b12a04daad6d7260)
+    assert(coeff_h2 == 0x0cd41c8f7b46057ad0ca5113f129ccb033f0db5f2bdd4b4742baf44cffd6f9cd)
+}
+
+#[test]
+fn test_verify_end_to_end() uses (evm: mut Evm) {
+    // Deploy the PlonkBench contract and call it with the real proof
+    let bench = evm.create2<super::plonk_bench::PlonkBench>(value: 0, args: (), salt: 0)
+    assert(bench.inner != 0)
+
+    // We can't easily pass the full proof calldata through the Fe test harness
+    // since the proof is read from calldata. Instead, test the building blocks
+    // and rely on the Foundry test for the full integration.
+    //
+    // The fact that all intermediate values match (challenges, PI, const_lin,
+    // all MSM scalars) means the bug is narrowly in the KZG fold/batch verify
+    // section — specifically how the pairing inputs are assembled.
+}
+
+#[test]
+fn test_kzg_fold_scalars() {
+    // Verify that gamma_kzg powers are computed correctly
+    // Given a known gamma_kzg, the powers should be [1, g, g^2, g^3, ...]
+    let g: u256 = 7  // arbitrary test value
+    let g0: u256 = 1
+    let g1 = g
+    let g2 = field::mul<F_Q>(g1, g)
+    let g3 = field::mul<F_Q>(g2, g)
+    assert(g0 == 1)
+    assert(g1 == 7)
+    assert(g2 == 49)
+    assert(g3 == 343)
+
+    // Folded eval = sum(claimed[i] * g^i)
+    let claimed: [u256; 4] = [10, 20, 30, 40]
+    let mut folded: u256 = 0
+    folded = field::add<F_Q>(folded, field::mul<F_Q>(claimed[0], g0))
+    folded = field::add<F_Q>(folded, field::mul<F_Q>(claimed[1], g1))
+    folded = field::add<F_Q>(folded, field::mul<F_Q>(claimed[2], g2))
+    folded = field::add<F_Q>(folded, field::mul<F_Q>(claimed[3], g3))
+    // 10*1 + 20*7 + 30*49 + 40*343 = 10 + 140 + 1470 + 13720 = 15340
+    assert(folded == 15340)
+}

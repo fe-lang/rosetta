@@ -1,0 +1,6 @@
+[ingot]
+name = "rosetta_verifier"
+version = "0.1.0"
+
+[dependencies]
+rosetta_ec = { path = "../rosetta_ec" }

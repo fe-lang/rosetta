@@ -1,0 +1,36 @@
+use std::abi::sol
+use super::bn254::{G1Point, G2Point}
+use super::bn254
+
+msg BN254Msg {
+    #[selector = sol("ecAdd(uint256,uint256,uint256,uint256)")]
+    EcAdd { ax: u256, ay: u256, bx: u256, by: u256 } -> (u256, u256),
+    #[selector = sol("ecMul(uint256,uint256,uint256)")]
+    EcMul { px: u256, py: u256, s: u256 } -> (u256, u256),
+    #[selector = sol("negate(uint256,uint256)")]
+    Negate { px: u256, py: u256 } -> (u256, u256),
+}
+
+pub contract BN254Bench {
+    init() {}
+    recv BN254Msg {
+        EcAdd { ax, ay, bx, by } -> (u256, u256) {
+            let result = bn254::ec_add(
+                G1Point { x: ax, y: ay },
+                G1Point { x: bx, y: by },
+            )
+            (result.x, result.y)
+        }
+        EcMul { px, py, s } -> (u256, u256) {
+            let result = bn254::ec_mul(
+                G1Point { x: px, y: py },
+                s,
+            )
+            (result.x, result.y)
+        }
+        Negate { px, py } -> (u256, u256) {
+            let result = bn254::negate(G1Point { x: px, y: py })
+            (result.x, result.y)
+        }
+    }
+}

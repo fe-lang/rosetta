@@ -1,0 +1,61 @@
+use std::evm::ops
+
+/// Verify a Merkle proof.
+/// Semantically equivalent to Solady's MerkleProofLib.verify().
+///
+/// Solady's version is 100% inline assembly: manual scratch-space management,
+/// branchless pair sorting via `shl(5, gt(...))`, raw keccak256 calls.
+///
+/// Fe version: same algorithm, plain code. The compiler handles memory layout.
+pub fn verify(proof: [u256; 32], proof_len: u256, root: u256, leaf: u256) -> bool {
+    compute_root(proof, proof_len, leaf) == root
+}
+
+/// Compute a Merkle root from a leaf and proof.
+pub fn compute_root(proof: [u256; 32], proof_len: u256, leaf: u256) -> u256 {
+    let scratch = std::evm::alloc(64)
+    let mut hash = leaf
+    let len: usize = proof_len as usize
+
+    let mut i: usize = 0
+    while i < len {
+        let sibling = proof[i]
+        if hash < sibling {
+            ops::mstore(scratch, hash)
+            ops::mstore(scratch + 32, sibling)
+        } else {
+            ops::mstore(scratch, sibling)
+            ops::mstore(scratch + 32, hash)
+        }
+        hash = ops::keccak256(scratch, 64)
+        i = i + 1
+    }
+    hash
+}
+
+/// Compute root reading proof directly from calldata (zero-copy).
+/// This matches Solady's approach of reading siblings via calldataload.
+pub fn compute_root_calldata(proof_offset: u256, proof_len: u256, leaf: u256) -> u256 {
+    let mut hash = leaf
+    let mut offset = proof_offset
+    let end = offset + proof_len * 32
+
+    while offset < end {
+        let sibling = ops::calldataload(offset)
+        if hash < sibling {
+            ops::mstore(0, hash)
+            ops::mstore(32, sibling)
+        } else {
+            ops::mstore(0, sibling)
+            ops::mstore(32, hash)
+        }
+        hash = ops::keccak256(0, 64)
+        offset = offset + 32
+    }
+    hash
+}
+
+/// Verify reading proof directly from calldata (zero-copy).
+pub fn verify_calldata(proof_offset: u256, proof_len: u256, root: u256, leaf: u256) -> bool {
+    compute_root_calldata(proof_offset, proof_len, leaf) == root
+}

@@ -1,0 +1,81 @@
+use std::abi::sol
+
+/// Simple constant-product AMM (x * y = k).
+/// A realistic DeFi primitive — storage, math, branching, state mutation.
+
+msg AmmMsg {
+    #[selector = sol("addLiquidity(uint256,uint256)")]
+    AddLiquidity { amount_a: u256, amount_b: u256 },
+    #[selector = sol("swapAForB(uint256)")]
+    SwapAForB { amount_in: u256 } -> u256,
+    #[selector = sol("swapBForA(uint256)")]
+    SwapBForA { amount_in: u256 } -> u256,
+    #[selector = sol("getReserveA()")]
+    GetReserveA -> u256,
+    #[selector = sol("getReserveB()")]
+    GetReserveB -> u256,
+    #[selector = sol("getK()")]
+    GetK -> u256,
+}
+
+struct AmmStore {
+    reserve_a: u256,
+    reserve_b: u256,
+}
+
+pub contract SimpleAmm {
+    mut store: AmmStore
+
+    init() uses (mut store) {
+        store.reserve_a = 0
+        store.reserve_b = 0
+    }
+
+    recv AmmMsg {
+        AddLiquidity { amount_a, amount_b } uses (mut store) {
+            store.reserve_a += amount_a
+            store.reserve_b += amount_b
+        }
+
+        SwapAForB { amount_in } -> u256 uses (mut store) {
+            // Constant product: dy = rb * dx / (ra + dx)
+            let amount_out = if amount_in == 0 {
+                0
+            } else if store.reserve_a == 0 {
+                0
+            } else if store.reserve_b == 0 {
+                0
+            } else {
+                store.reserve_b * amount_in / (store.reserve_a + amount_in)
+            }
+            if amount_out == 0 {
+                return 0
+            }
+            store.reserve_a += amount_in
+            store.reserve_b -= amount_out
+            amount_out
+        }
+
+        SwapBForA { amount_in } -> u256 uses (mut store) {
+            let amount_out = if amount_in == 0 {
+                0
+            } else if store.reserve_a == 0 {
+                0
+            } else if store.reserve_b == 0 {
+                0
+            } else {
+                store.reserve_a * amount_in / (store.reserve_b + amount_in)
+            }
+            if amount_out == 0 {
+                return 0
+            }
+            store.reserve_b += amount_in
+            store.reserve_a -= amount_out
+            amount_out
+        }
+
+        GetReserveA -> u256 uses (store) { store.reserve_a }
+        GetReserveB -> u256 uses (store) { store.reserve_b }
+        GetK -> u256 uses (store) { store.reserve_a * store.reserve_b }
+    }
+}

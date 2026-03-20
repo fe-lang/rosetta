@@ -1,0 +1,109 @@
+/// Circuit description as compile-time data.
+///
+/// This is the Fe answer to code generation. Instead of a Rust/JS/Go tool
+/// that emits 2000 lines of Solidity assembly per circuit, the circuit is
+/// described as const data. The verifier library consumes it generically.
+///
+/// A code generator targeting Fe would emit ONE of these — ~50 lines of
+/// const declarations — instead of a 2000-line assembly monolith.
+
+/// Describes a Halo2-style circuit's shape for verification.
+pub struct CircuitShape {
+    /// Number of advice columns (prover witness).
+    pub num_advice: usize,
+    /// Number of fixed columns (preprocessed by circuit author).
+    pub num_fixed: usize,
+    /// Number of instance columns (public inputs).
+    pub num_instance: usize,
+    /// Number of permutation columns.
+    pub num_permutation: usize,
+    /// Number of quotient polynomial chunks.
+    pub num_quotient_chunks: usize,
+    /// Number of Fiat-Shamir transcript rounds.
+    pub num_transcript_rounds: usize,
+}
+
+/// The OpenVM circuit shape — extracted from the 2036-line Halo2Verifier.sol.
+/// In Solidity, these values are implicit in the code structure (number of
+/// calldataload calls, number of validate_ec_point calls, etc.)
+/// In Fe, they're explicit const data.
+const fn openvm_circuit() -> CircuitShape {
+    CircuitShape {
+        num_advice: 5,
+        num_fixed: 1,
+        num_instance: 1,
+        num_permutation: 4,
+        num_quotient_chunks: 4,
+        num_transcript_rounds: 9,
+    }
+}
+
+/// Verification key as const data.
+/// In Solidity: 26 hex constants scattered across 2036 lines.
+/// In Fe: a struct literal.
+pub struct VKPoint {
+    pub x: u256,
+    pub y: u256,
+}
+
+pub struct Halo2CircuitVK {
+    /// Transcript initialization constant.
+    pub transcript_init: u256,
+    /// Fixed column commitments.
+    pub fixed_comms: [VKPoint; 1],
+    /// Permutation commitments.
+    pub permutation_comms: [VKPoint; 4],
+    /// KZG SRS G2 point ([x]_2).
+    pub g2_x: [u256; 4],  // x_imag, x_real, y_imag, y_real
+}
+
+/// The OpenVM verification key — the 26 unique constants from Halo2Verifier.sol,
+/// organized as typed data instead of scattered hex literals.
+const fn openvm_vk() -> Halo2CircuitVK {
+    Halo2CircuitVK {
+        transcript_init: 0x2347cc725aa8ab0c70557e7effada9a02cba0277f8aca1785f986430d8b63ad4,
+        fixed_comms: [
+            VKPoint {
+                x: 0x04633090806662534335356654f3ee6430f215f4f010ae32ae068a900596d598,
+                y: 0x23eb59f4643a8f86f1bb54ebc274b4810126c9c2fae5d8de472ef0566afaa14c,
+            },
+        ],
+        permutation_comms: [
+            VKPoint {
+                x: 0x2ae0c8c3a090f7200ff398ee9845bbae8f8c1445ae7b632212775f60a0e21600,
+                y: 0x10ff9174af9a7540d6335a6dad3dd0fe0c3943b24b706ba111c73534218c8d99,
+            },
+            VKPoint {
+                x: 0x0f6641ca942a4541625b14adb25ab0fd978060c98d01eb1b036fcdb1b8f77be1,
+                y: 0x0efe5496541e2bd648d490f11ad542e1dec3127f818b8065843d0dd81358416c,
+            },
+            VKPoint {
+                x: 0x1debabb870ec20dc2c4df55cbd88205b6dd234ad5805faf3a72e14b6f934f238,
+                y: 0x190fa476a5b352809ed41d7a0d7fe12b8f685e3c12a6d83855dba27aaf469643,
+            },
+            VKPoint {
+                x: 0x13b28c9220c717cac368247913075f4bb8da09cd9d0145c1292810854089c39c,
+                y: 0x18dca54423b6fa7932c92beff56ce260a3c726e3613c92fe0843d86b92199bfd,
+            },
+        ],
+        g2_x: [
+            0x198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c2,
+            0x1800deef121f1e76426a00665e5c4479674322d4f75edadd46debd5cd992f6ed,
+            0x090689d0585ff075ec9e99ad690c3395bc4b313370b38ef355acdadcd122975b,
+            0x12c85ea5db8c6deb4aab71808dcb408fe3d1e7690c43d37b4ce6cc0166fa7daa,
+        ],
+    }
+}
+
+// What a code generator targeting Fe would output:
+//
+//   snark-verifier → Solidity: 2036 lines of assembly, one per circuit
+//   snark-verifier → Fe:       ~50 lines of const data, reuses verifier library
+//
+// The verifier library (field.fe, transcript.fe, msm.fe, halo2.fe) is written
+// and audited ONCE. Each new circuit just adds a const fn returning its shape
+// and VK. The compiler monomorphizes the generic verifier into circuit-specific
+// bytecode via const generics and const fn evaluation.
+
+// placeholder to satisfy parser
+const _MARKER: u256 = 0
