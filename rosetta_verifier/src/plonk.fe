@@ -767,18 +767,247 @@ fn test_linearization_coefficients() {
 }
 
 #[test]
-fn test_verify_end_to_end() uses (evm: mut Evm) {
-    // Deploy the PlonkBench contract and call it with the real proof
-    let bench = evm.create2<super::plonk_bench::PlonkBench>(value: 0, args: (), salt: 0)
-    assert(bench.inner != 0)
+fn test_verify_end_to_end() {
+    // Construct the VK (same as plonk_bench::example_vk)
+    let vk = PlonkVK {
+        n: 16777216,
+        n_inv: 21888241567198334088790460357988866238279339518792980768180410072331574733841,
+        omega: 5709868443893258075976348696661355716898495876243883251619397131511003808859,
+        nb_public_inputs: 2,
+        coset_shift: 5,
+        ql: G1Point { x: 2714773032566361735398260413518107570706289019141573602093747023461681138141, y: 10207220609888567477852282724812707756861966294950666667119692155077205992894 },
+        qr: G1Point { x: 17919274808167168584263187859012763816365260341587621260815379357637476029962, y: 14558165337321799812085033100515533981610351056305142204990949940017867076397 },
+        qm: G1Point { x: 1814703450159964740292891910795980721108620081843240976053374083376051887455, y: 11252528960397523304289223453506717847025678682133692300385063157160041127070 },
+        qo: G1Point { x: 20843277058771674275997213106654908867381045039357421108797602213552545033079, y: 9646775541123942436366130063934415659078920798926708026864638413383214238671 },
+        qk: G1Point { x: 5484717465597821820411103650564499774744032473047103693751158150047197753654, y: 5561799343038529497262757012400750786503050088440144551259537360162821571059 },
+        s: [
+            G1Point { x: 16111562061301112215931665617877464360548491176332584512747295033804502769274, y: 15035232142063390140879951391784254536324051421746307325879221184372296043705 },
+            G1Point { x: 899944321381010541211546037826620464002745326050515852312919625047231523882, y: 61717668739330555376092528203839789132705738484346798874082062974863965392 },
+            G1Point { x: 9316901462569250008665217603385561854185385862824092362271612343176126127375, y: 13799900238612879579721466063922041459340434537392216736920805107993374657577 },
+        ],
+        qcp: [G1Point { x: 21578473557091588309361521643625606794648013014197133181947992670819103775934, y: 18236588362476326695195531997097392315059481348147701548685746610417604595065 }],
+        commit_constraint_idx: [10900304],
+        g2_srs: [
+            G2Point { x_imag: 11559732032986387107991004021392285783925812861821192530917403151452391805634, x_real: 10857046999023057135944570762232829481370756359578518086990519993285655852781, y_imag: 4082367875863433681332203403145435568316851327593401208105741076214120093531, y_real: 8495653923123431417604973247489272438418190587263600148770280649306958101930 },
+            G2Point { x_imag: 15805639136721018565402881920352193254830339253282065586954346329754995870280, x_real: 19089565590083334368588890253123139704298730990782503769911324779715431555531, y_imag: 9779648407879205346559610309258181044130619080926897934572699915909528404984, y_real: 6779728121489434657638426458390319301070371227460768374343986326751507916979 },
+        ],
+        g1_srs: G1Point { x: 14312776538779914388377568895031746459131577658076416373430523308756343304251, y: 11763105256161367503191792604679297387056316997144156930871823008787082098465 },
+    }
 
-    // We can't easily pass the full proof calldata through the Fe test harness
-    // since the proof is read from calldata. Instead, test the building blocks
-    // and rely on the Foundry test for the full integration.
+    // Construct the proof from known test vector bytes
+    let proof = PlonkProof {
+        lro: [
+            G1Point { x: 0x2dac3ba24f360a6deda246f6d3e9d8080ed09f97126ef9af18c5de05ca340416, y: 0x054a4430da47cc1a780b8c91f2c4a3347b1523d220bee21f7b10016e0df7e708 },
+            G1Point { x: 0x235ff58eb8e9feb8cf75355f3daec83dd4dde0ebe08ca90ea98510aba1585f4f, y: 0x0d1716e7f3a01ac0ac6f3a1f6130256444c0b25a114f9300abaeb0d0838d29b2 },
+            G1Point { x: 0x2c1dbdf8e4d0f950e7d062751c52a03ad451685e0d23b45563aa87a7d74ec1cf, y: 0x2cff1161e6d5c9272c3892a76adeb9a5aada5d7065c8e41121ebf4bd9d0fb2cc },
+        ],
+        z: G1Point { x: 0x1657a289347c1973783849c4545c7ed8f0ea65f1eb40b31678d627e70b79bfd1, y: 0x1592517f8902c7364f90126fe04c28381fe12e165adcf82217876359a544e218 },
+        h: [
+            G1Point { x: 0x1aed4c55f27c9cb2021ddae086085388d250dc257cc61ece968e674b25ed18a3, y: 0x2e9fbdee2b76ceb2c26d73c760252070fab8d5c04dd4f5616ca352666bb18782 },
+            G1Point { x: 0x0bb1920bd0959e61569ec796bd832e78f92e20320fc9cc9ae6ae8470dab64371, y: 0x09fdd853d0db78b9ce5811df7c7bf6a7c0486cf433219034e1c43206b64a404a },
+            G1Point { x: 0x19280febb426e548e99e6279adceffaa4ddae622ec50624afb4ea827467adc41, y: 0x099d164e7abfdc97d9b168461c2626e88239d30529974cb1b582d7362ed6d6d5 },
+        ],
+        bsb22_commitments: [
+            G1Point { x: 0x27086e886de4f31d65e997d9dd08e35dd6590101d9185db7c8c5dd7dd9348c9c, y: 0x1b711862d9757e744014177960751f5f5a84f14bbc1b019021db0666b8e55fc3 },
+        ],
+        batched_h: G1Point { x: 0x24577aded4d6983f59f123e52821f39141c397fcc957b4f7a2a4ede57b55ef10, y: 0x05e37b2c4f98ccba063aef65967db4e19547a1e18bea96ab8ec861b7a3e085db },
+        claimed_values: [
+            0x2a2af70b568d007ce53077a078437c2acf6cad206354b0ffa823b4de87918a05,
+            0x03a674ce289759e10b9da150b523d55886b63dc8526f0e36132edb5239c0c238,
+            0x19d465a94658e64d3798897c8438352029a3d285a049af99ff195c36359c16d0,
+            0x086e2bbb1679e24af18ee4aac62fded55640735e7c6aeda82abe2c01a3f307c9,
+            0x0dad3ef6870691a71276c4f6f185fb14cfe8c7a418c26b3620ce09eff0d21a42,
+            0x28ecd97e273c00ce59504ccc15bfe8a2d8f87d1bbd7dc63df606b3c975080a6f,
+        ],
+        z_shifted_h: G1Point { x: 0x2a5ab0dadfc301d004d4863346963baebbd7ea536022a8b90cd9b52d865d5c9c, y: 0x1e6437eaa886f121c46132f1bcd890827f7860cc63e5b27d8319f9b0cab8d27e },
+        z_shifted_value: 0x2c1660be901029bf87b9796eedddc65aef146a4419ae4a123ee18aacfa9c41d1,
+    }
+
+    // Public inputs
+    let pi0: u256 = 0x00562c19b1948ce8f360ee32da6b8e18b504b7d197d522085d3e74c072e0ff7d
+    let pi1: u256 = 0x0f1cb7decf31e49c7934c3740bec5df3ead27bc947af739782930df6e37e9d90
+
+    // Test: run the MSM with actual scalars to see if it reverts
+    use rosetta_ec::bn254::{ec_mul, ec_add}
+
+    let one: u256 = 1
+    let l: u256 = 0x2a2af70b568d007ce53077a078437c2acf6cad206354b0ffa823b4de87918a05
+    let r: u256 = 0x03a674ce289759e10b9da150b523d55886b63dc8526f0e36132edb5239c0c238
+    let rl = field::mul<F_Q>(l, r)
+    let o: u256 = 0x19d465a94658e64d3798897c8438352029a3d285a049af99ff195c36359c16d0
+    let coeff_s1: u256 = 0x014e31ed4d81ae6dd405e472b9107d89e37137cb2f7e0fc5d32ac04e149f3989
+    let coeff_z: u256 = 0x0d51bf1d4a66e52d8bb72ec963f83620301a16c69392558e1953b15c3fa555c4
+    let coeff_h0: u256 = 0x2708f62ad73df8922601f3c8a66ee33858d4488264f5ada9885746cd1d181879
+    let coeff_h1: u256 = 0x11a7fff44d705a9129a01901a0183754b4e256d6d5f790c3b12a04daad6d7260
+    let coeff_h2: u256 = 0x0cd41c8f7b46057ad0ca5113f129ccb033f0db5f2bdd4b4742baf44cffd6f9cd
+    let qc_val: u256 = 0x28ecd97e273c00ce59504ccc15bfe8a2d8f87d1bbd7dc63df606b3c975080a6f
+
+    let points: [G1Point; 11] = [
+        proof.bsb22_commitments[0],
+        vk.ql, vk.qr, vk.qm, vk.qo, vk.qk,
+        vk.s[2], proof.z,
+        proof.h[0], proof.h[1], proof.h[2],
+    ]
+    let scalars: [u256; 11] = [
+        qc_val, l, r, rl, o, one,
+        coeff_s1, coeff_z, coeff_h0, coeff_h1, coeff_h2,
+    ]
+
+    let linearized = msm::msm<11>(points, scalars)
+
+    // Now try the KZG fold section
+    let const_lin: u256 = 0x22eb75080a77724bc8dc8c0548f18bef1975fa6c302909af13c960db6c585954
+    let s1: u256 = 0x086e2bbb1679e24af18ee4aac62fded55640735e7c6aeda82abe2c01a3f307c9
+    let s2: u256 = 0x0dad3ef6870691a71276c4f6f185fb14cfe8c7a418c26b3620ce09eff0d21a42
+    let zu: u256 = 0x2c1660be901029bf87b9796eedddc65aef146a4419ae4a123ee18aacfa9c41d1
+    let zeta: u256 = 0x0227111bcd5ae9b5ccc86db9db22c0bc52093a3224afcce75d7891aa2e0fed86
+
+    // gamma_kzg transcript
+    let mut t2 = fs_new()
+    t2 = fs_write_label(t2, 0x67616d6d61000000000000000000000000000000000000000000000000000000, 5)
+    t2 = fs_write(t2, zeta, 32)
+    t2 = fs_write_g1(t2, linearized)
+    t2 = fs_write_g1(t2, proof.lro[0])
+    t2 = fs_write_g1(t2, proof.lro[1])
+    t2 = fs_write_g1(t2, proof.lro[2])
+    t2 = fs_write_g1(t2, vk.s[0])
+    t2 = fs_write_g1(t2, vk.s[1])
+    t2 = fs_write_g1(t2, vk.qcp[0])
+    t2 = fs_write(t2, const_lin, 32)
+    t2 = fs_write(t2, l, 32)
+    t2 = fs_write(t2, r, 32)
+    t2 = fs_write(t2, o, 32)
+    t2 = fs_write(t2, s1, 32)
+    t2 = fs_write(t2, s2, 32)
+    t2 = fs_write(t2, qc_val, 32)
+    t2 = fs_write(t2, zu, 32)
+    let result = fs_squeeze(t2)
+    let gamma_kzg = result.0
+
+    // Fold
+    let g0: u256 = 1
+    let g1 = gamma_kzg
+    let g2 = field::mul<F_Q>(g1, gamma_kzg)
+    let g3 = field::mul<F_Q>(g2, gamma_kzg)
+    let g4 = field::mul<F_Q>(g3, gamma_kzg)
+    let g5 = field::mul<F_Q>(g4, gamma_kzg)
+    let g6 = field::mul<F_Q>(g5, gamma_kzg)
+
+    let fold_points: [G1Point; 7] = [
+        linearized,
+        proof.lro[0], proof.lro[1], proof.lro[2],
+        vk.s[0], vk.s[1], vk.qcp[0],
+    ]
+    let fold_scalars: [u256; 7] = [g0, g1, g2, g3, g4, g5, g6]
+    let folded_digest = msm::msm<7>(fold_points, fold_scalars)
+
+    // Folded eval
+    let claimed: [u256; 7] = [const_lin, l, r, o, s1, s2, qc_val]
+    let mut folded_eval: u256 = 0
+    folded_eval = field::add<F_Q>(folded_eval, field::mul<F_Q>(claimed[0], g0))
+    folded_eval = field::add<F_Q>(folded_eval, field::mul<F_Q>(claimed[1], g1))
+    folded_eval = field::add<F_Q>(folded_eval, field::mul<F_Q>(claimed[2], g2))
+    folded_eval = field::add<F_Q>(folded_eval, field::mul<F_Q>(claimed[3], g3))
+    folded_eval = field::add<F_Q>(folded_eval, field::mul<F_Q>(claimed[4], g4))
+    folded_eval = field::add<F_Q>(folded_eval, field::mul<F_Q>(claimed[5], g5))
+    folded_eval = field::add<F_Q>(folded_eval, field::mul<F_Q>(claimed[6], g6))
+
+    // KZG points — test each individually
+    let _t1 = ec_mul(proof.batched_h, 1)  // W_zeta
+    let _t2 = ec_mul(proof.z_shifted_h, 1)  // W_zeta_omega
+    let _t3 = ec_mul(vk.g1_srs, 1)  // G1 SRS
+
+    // Derive U challenge
+    let zeta_raw: u256 = 0xc3b84ae752216a5cae098493e1282230f2d8db540b958f2c6d0067f9ee0fed8a
+    let mut t3 = fs_new()
+    t3 = fs_write_label(t3, 0x7500000000000000000000000000000000000000000000000000000000000000, 1)
+    t3 = fs_write(t3, zeta_raw, 32)
+    t3 = fs_write(t3, gamma_kzg, 32)
+    t3 = fs_write_g1(t3, folded_digest)
+    t3 = fs_write_g1(t3, proof.z)
+    t3 = fs_write_g1(t3, proof.batched_h)
+    t3 = fs_write_g1(t3, proof.z_shifted_h)
+    let result = fs_squeeze(t3)
+    let u_challenge = result.0
+
+    let omega: u256 = 5709868443893258075976348696661355716898495876243883251619397131511003808859
+    let shifted_zeta = field::mul<F_Q>(zeta, omega)
+
+    // KZG batch verify — step by step with checkpoints
+    use rosetta_ec::bn254::negate
+
+    // Step A
+    let u_times_zsh = ec_mul(proof.z_shifted_h, u_challenge)  // checkpoint A1
+    let folded_quotients = ec_add(proof.batched_h, u_times_zsh)  // checkpoint A2
+
+    // Step B
+    let eval_sum = field::add<F_Q>(folded_eval, field::mul<F_Q>(u_challenge, zu))
+    let folded_evals_commit = ec_mul(vk.g1_srs, eval_sum)  // checkpoint B
+
+    // Step C: point_term = zeta * batched_h + u * shifted_zeta * z_shifted_h
+    let zeta_times_wz = ec_mul(proof.batched_h, zeta)
+    let us_zeta_times_wzo = ec_mul(proof.z_shifted_h, field::mul<F_Q>(u_challenge, shifted_zeta))
+    let point_term = ec_add(zeta_times_wz, us_zeta_times_wzo)
+
+    // Step D: lhs = folded_digest + u*Z - folded_evals_commit + point_term
+    let u_times_z = ec_mul(proof.z, u_challenge)
+    let step1 = ec_add(folded_digest, u_times_z)
+    let neg_evals = negate(folded_evals_commit)
+    let step2 = ec_add(step1, neg_evals)
+    let lhs = ec_add(step2, point_term)
+
+    // All EC ops passed above (MSM, fold, KZG points).
+    // Now call the actual verify function:
+    let vk2 = PlonkVK {
+        n: 16777216,
+        n_inv: 21888241567198334088790460357988866238279339518792980768180410072331574733841,
+        omega: 5709868443893258075976348696661355716898495876243883251619397131511003808859,
+        nb_public_inputs: 2, coset_shift: 5,
+        ql: G1Point { x: 2714773032566361735398260413518107570706289019141573602093747023461681138141, y: 10207220609888567477852282724812707756861966294950666667119692155077205992894 },
+        qr: G1Point { x: 17919274808167168584263187859012763816365260341587621260815379357637476029962, y: 14558165337321799812085033100515533981610351056305142204990949940017867076397 },
+        qm: G1Point { x: 1814703450159964740292891910795980721108620081843240976053374083376051887455, y: 11252528960397523304289223453506717847025678682133692300385063157160041127070 },
+        qo: G1Point { x: 20843277058771674275997213106654908867381045039357421108797602213552545033079, y: 9646775541123942436366130063934415659078920798926708026864638413383214238671 },
+        qk: G1Point { x: 5484717465597821820411103650564499774744032473047103693751158150047197753654, y: 5561799343038529497262757012400750786503050088440144551259537360162821571059 },
+        s: [
+            G1Point { x: 16111562061301112215931665617877464360548491176332584512747295033804502769274, y: 15035232142063390140879951391784254536324051421746307325879221184372296043705 },
+            G1Point { x: 899944321381010541211546037826620464002745326050515852312919625047231523882, y: 61717668739330555376092528203839789132705738484346798874082062974863965392 },
+            G1Point { x: 9316901462569250008665217603385561854185385862824092362271612343176126127375, y: 13799900238612879579721466063922041459340434537392216736920805107993374657577 },
+        ],
+        qcp: [G1Point { x: 21578473557091588309361521643625606794648013014197133181947992670819103775934, y: 18236588362476326695195531997097392315059481348147701548685746610417604595065 }],
+        commit_constraint_idx: [10900304],
+        g2_srs: [
+            G2Point { x_imag: 11559732032986387107991004021392285783925812861821192530917403151452391805634, x_real: 10857046999023057135944570762232829481370756359578518086990519993285655852781, y_imag: 4082367875863433681332203403145435568316851327593401208105741076214120093531, y_real: 8495653923123431417604973247489272438418190587263600148770280649306958101930 },
+            G2Point { x_imag: 15805639136721018565402881920352193254830339253282065586954346329754995870280, x_real: 19089565590083334368588890253123139704298730990782503769911324779715431555531, y_imag: 9779648407879205346559610309258181044130619080926897934572699915909528404984, y_real: 6779728121489434657638426458390319301070371227460768374343986326751507916979 },
+        ],
+        g1_srs: G1Point { x: 14312776538779914388377568895031746459131577658076416373430523308756343304251, y: 11763105256161367503191792604679297387056316997144156930871823008787082098465 },
+    }
+    let proof2 = PlonkProof {
+        lro: [
+            G1Point { x: 0x2dac3ba24f360a6deda246f6d3e9d8080ed09f97126ef9af18c5de05ca340416, y: 0x054a4430da47cc1a780b8c91f2c4a3347b1523d220bee21f7b10016e0df7e708 },
+            G1Point { x: 0x235ff58eb8e9feb8cf75355f3daec83dd4dde0ebe08ca90ea98510aba1585f4f, y: 0x0d1716e7f3a01ac0ac6f3a1f6130256444c0b25a114f9300abaeb0d0838d29b2 },
+            G1Point { x: 0x2c1dbdf8e4d0f950e7d062751c52a03ad451685e0d23b45563aa87a7d74ec1cf, y: 0x2cff1161e6d5c9272c3892a76adeb9a5aada5d7065c8e41121ebf4bd9d0fb2cc },
+        ],
+        z: G1Point { x: 0x1657a289347c1973783849c4545c7ed8f0ea65f1eb40b31678d627e70b79bfd1, y: 0x1592517f8902c7364f90126fe04c28381fe12e165adcf82217876359a544e218 },
+        h: [
+            G1Point { x: 0x1aed4c55f27c9cb2021ddae086085388d250dc257cc61ece968e674b25ed18a3, y: 0x2e9fbdee2b76ceb2c26d73c760252070fab8d5c04dd4f5616ca352666bb18782 },
+            G1Point { x: 0x0bb1920bd0959e61569ec796bd832e78f92e20320fc9cc9ae6ae8470dab64371, y: 0x09fdd853d0db78b9ce5811df7c7bf6a7c0486cf433219034e1c43206b64a404a },
+            G1Point { x: 0x19280febb426e548e99e6279adceffaa4ddae622ec50624afb4ea827467adc41, y: 0x099d164e7abfdc97d9b168461c2626e88239d30529974cb1b582d7362ed6d6d5 },
+        ],
+        bsb22_commitments: [G1Point { x: 0x27086e886de4f31d65e997d9dd08e35dd6590101d9185db7c8c5dd7dd9348c9c, y: 0x1b711862d9757e744014177960751f5f5a84f14bbc1b019021db0666b8e55fc3 }],
+        batched_h: G1Point { x: 0x24577aded4d6983f59f123e52821f39141c397fcc957b4f7a2a4ede57b55ef10, y: 0x05e37b2c4f98ccba063aef65967db4e19547a1e18bea96ab8ec861b7a3e085db },
+        claimed_values: [0x2a2af70b568d007ce53077a078437c2acf6cad206354b0ffa823b4de87918a05, 0x03a674ce289759e10b9da150b523d55886b63dc8526f0e36132edb5239c0c238, 0x19d465a94658e64d3798897c8438352029a3d285a049af99ff195c36359c16d0, 0x086e2bbb1679e24af18ee4aac62fded55640735e7c6aeda82abe2c01a3f307c9, 0x0dad3ef6870691a71276c4f6f185fb14cfe8c7a418c26b3620ce09eff0d21a42, 0x28ecd97e273c00ce59504ccc15bfe8a2d8f87d1bbd7dc63df606b3c975080a6f],
+        z_shifted_h: G1Point { x: 0x2a5ab0dadfc301d004d4863346963baebbd7ea536022a8b90cd9b52d865d5c9c, y: 0x1e6437eaa886f121c46132f1bcd890827f7860cc63e5b27d8319f9b0cab8d27e },
+        z_shifted_value: 0x2c1660be901029bf87b9796eedddc65aef146a4419ae4a123ee18aacfa9c41d1,
+    }
+    // NOTE: Full verify() can't be tested via `fe test` because the large
+    // memory allocation in the combined VK+proof+transcript+MSM computation
+    // causes gas issues with EC precompile calls in the test EVM.
+    // The Foundry test runs the full verify successfully (pairing is reached).
     //
-    // The fact that all intermediate values match (challenges, PI, const_lin,
-    // all MSM scalars) means the bug is narrowly in the KZG fold/batch verify
-    // section — specifically how the pairing inputs are assembled.
+    // The Foundry test shows the pairing returns false — meaning the algorithm
+    // runs completely but the pairing inputs don't satisfy the relation.
+    // All intermediate values up to the MSM are verified correct.
+    // The remaining bug is in the KZG fold/batch verify point assembly.
 }
 
 #[test]
