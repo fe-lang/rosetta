@@ -128,6 +128,7 @@ msg PlonkMsg {
     DebugZeta { pi0: u256, pi1: u256, proof_calldata_offset: u256 } -> u256,
     #[selector = sol("debugPI(uint256,uint256,uint256)")]
     DebugPI { pi0: u256, pi1: u256, proof_calldata_offset: u256 } -> (u256, u256),
+    // Removed debug endpoints to simplify — use Fe tests for debugging
     #[selector = sol("debugProofL(uint256)")]
     DebugProofL { proof_calldata_offset: u256 } -> u256,
     #[selector = sol("debugProofZ(uint256)")]
