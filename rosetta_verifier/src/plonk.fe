@@ -188,7 +188,7 @@ fn batch_invert_2(a: u256, b: u256) -> (u256, u256) {
 /// Returns (gamma_raw, beta_raw, alpha_raw, zeta_raw)
 pub fn debug_challenges(
     vk: own PlonkVK, proof: own PlonkProof,
-    pub_inputs: [u256; 2],
+    pub_inputs: [u256; 5],
 ) -> (u256, u256, u256, u256) {
     let mut t = fs_new()
 
@@ -203,8 +203,11 @@ pub fn debug_challenges(
     t = fs_write_g1(t, vk.qo)
     t = fs_write_g1(t, vk.qk)
     t = fs_write_g1(t, vk.qcp[0])
-    t = fs_write(t, pub_inputs[0], 32)
-    t = fs_write(t, pub_inputs[1], 32)
+    let mut pi_idx: usize = 0
+    while pi_idx < 5 {
+        t = fs_write(t, pub_inputs[pi_idx], 32)
+        pi_idx = pi_idx + 1
+    }
     t = fs_write_g1(t, proof.lro[0])
     t = fs_write_g1(t, proof.lro[1])
     t = fs_write_g1(t, proof.lro[2])
@@ -243,7 +246,7 @@ pub fn debug_challenges(
 /// Debug: return (pi_total, const_lin) for verification debugging.
 pub fn debug_pi(
     vk: own PlonkVK, proof: own PlonkProof,
-    pub_inputs: [u256; 2],
+    pub_inputs: [u256; 5],
 ) -> (u256, u256) {
     let one: u256 = 1
     // Reuse the challenge derivation from verify
@@ -258,8 +261,11 @@ pub fn debug_pi(
     t = fs_write_g1(t, vk.qo)
     t = fs_write_g1(t, vk.qk)
     t = fs_write_g1(t, vk.qcp[0])
-    t = fs_write(t, pub_inputs[0], 32)
-    t = fs_write(t, pub_inputs[1], 32)
+    let mut pi_idx: usize = 0
+    while pi_idx < 5 {
+        t = fs_write(t, pub_inputs[pi_idx], 32)
+        pi_idx = pi_idx + 1
+    }
     t = fs_write_g1(t, proof.lro[0])
     t = fs_write_g1(t, proof.lro[1])
     t = fs_write_g1(t, proof.lro[2])
@@ -292,17 +298,17 @@ pub fn debug_pi(
     // Compute PI
     let zeta_power_n = pow_mod(zeta, vk.n)
     let zh_zeta = field::sub<F_Q>(zeta_power_n, one)
-    let den0 = field::sub<F_Q>(zeta, one)
-    let den1 = field::sub<F_Q>(zeta, vk.omega)
-    let result = batch_invert_2(den0, den1)
-    let inv_den0 = result.0
-    let inv_den1 = result.1
-    let l0 = field::mul<F_Q>(field::mul<F_Q>(zh_zeta, inv_den0), vk.n_inv)
-    let l1_pi = field::mul<F_Q>(field::mul<F_Q>(field::mul<F_Q>(zh_zeta, inv_den1), vk.n_inv), vk.omega)
-    let mut pi = field::add<F_Q>(
-        field::mul<F_Q>(l0, pub_inputs[0]),
-        field::mul<F_Q>(l1_pi, pub_inputs[1])
-    )
+    let mut pi: u256 = 0
+    let mut omega_i: u256 = 1
+    let mut i: usize = 0
+    while i < 5 {
+        let den = field::sub<F_Q>(zeta, omega_i)
+        let den_inv = field::inv<F_Q>(den)
+        let li = field::mul<F_Q>(field::mul<F_Q>(field::mul<F_Q>(zh_zeta, omega_i), den_inv), vk.n_inv)
+        pi = field::add<F_Q>(pi, field::mul<F_Q>(li, pub_inputs[i]))
+        omega_i = field::mul<F_Q>(omega_i, vk.omega)
+        i = i + 1
+    }
     // BSB22
     let h_fr = hash_fr(proof.bsb22_commitments[0].x, proof.bsb22_commitments[0].y)
     let bsb_index = (vk.nb_public_inputs as u256) + (vk.commit_constraint_idx[0] as u256)
@@ -323,7 +329,7 @@ pub fn debug_pi(
 /// Follows SP1 verify_plonk_algebraic() from verify.rs.
 pub fn verify(
     vk: own PlonkVK, proof: own PlonkProof,
-    pub_inputs: [u256; 2],
+    pub_inputs: [u256; 5],
 ) -> bool {
     let one: u256 = 1
 
@@ -345,8 +351,11 @@ pub fn verify(
     t = fs_write_g1(t, vk.qo)
     t = fs_write_g1(t, vk.qk)
     t = fs_write_g1(t, vk.qcp[0])
-    t = fs_write(t, pub_inputs[0], 32)
-    t = fs_write(t, pub_inputs[1], 32)
+    let mut pi_idx: usize = 0
+    while pi_idx < 5 {
+        t = fs_write(t, pub_inputs[pi_idx], 32)
+        pi_idx = pi_idx + 1
+    }
     t = fs_write_g1(t, proof.lro[0])
     t = fs_write_g1(t, proof.lro[1])
     t = fs_write_g1(t, proof.lro[2])
@@ -395,21 +404,18 @@ pub fn verify(
     )
 
     // --- 3. Compute PI(zeta) = sum of L_i(zeta) * pub_inputs[i] ---
-    let den0 = field::sub<F_Q>(zeta, one)
-    let den1 = field::sub<F_Q>(zeta, vk.omega)
-    let result = batch_invert_2(den0, den1)
-    let inv_den0 = result.0
-    let inv_den1 = result.1
-
-    // L0(zeta) = zh_zeta * inv_den0 * n_inv * omega^0 = zh_zeta * inv_den0 * n_inv
-    let l0 = field::mul<F_Q>(field::mul<F_Q>(zh_zeta, inv_den0), vk.n_inv)
-    // L1(zeta) = zh_zeta * inv_den1 * n_inv * omega
-    let l1_pi = field::mul<F_Q>(field::mul<F_Q>(field::mul<F_Q>(zh_zeta, inv_den1), vk.n_inv), vk.omega)
-
-    let mut pi = field::add<F_Q>(
-        field::mul<F_Q>(l0, pub_inputs[0]),
-        field::mul<F_Q>(l1_pi, pub_inputs[1])
-    )
+    // L_i(zeta) = (zh * omega^i) / (n * (zeta - omega^i))
+    let mut pi: u256 = 0
+    let mut omega_i: u256 = 1  // omega^0 = 1
+    let mut i: usize = 0
+    while i < 5 {
+        let den = field::sub<F_Q>(zeta, omega_i)
+        let den_inv = field::inv<F_Q>(den)
+        let li = field::mul<F_Q>(field::mul<F_Q>(field::mul<F_Q>(zh_zeta, omega_i), den_inv), vk.n_inv)
+        pi = field::add<F_Q>(pi, field::mul<F_Q>(li, pub_inputs[i]))
+        omega_i = field::mul<F_Q>(omega_i, vk.omega)
+        i = i + 1
+    }
 
     // --- 3b. BSB22 custom gate commitment contribution to PI ---
     // hash_fr(bsb22_commitment) * L_{nb_public_inputs + commit_constraint_idx}(zeta)
