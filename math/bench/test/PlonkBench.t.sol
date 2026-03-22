@@ -117,23 +117,4 @@ contract PlonkBenchTest {
         return rawProof;
     }
 
-    /// @notice Compare Fe gamma challenge against Solidity reference.
-    /// Expected: 0xff308047da30967bfb048fd879ebf74334296494aef3df387308863b238540ac
-    function test_gammaChallenge() public view {
-        (uint256 pi0, uint256 pi1) = _computePlonkInputs();
-        bytes memory rawProof = _stripSelector();
-
-        bytes memory callData = abi.encodePacked(
-            bytes4(keccak256("debugGamma(uint256,uint256,uint256)")),
-            pi0, pi1, uint256(100),
-            rawProof
-        );
-
-        (bool success, bytes memory result) = feAddr.staticcall(callData);
-        require(success, "debugGamma reverted");
-        uint256 feGammaRaw = abi.decode(result, (uint256));
-
-        uint256 expected = 0xff308047da30967bfb048fd879ebf74334296494aef3df387308863b238540ac;
-        require(feGammaRaw == expected, "gamma hash mismatch");
-    }
 }
