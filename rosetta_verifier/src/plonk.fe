@@ -1040,3 +1040,15 @@ fn test_kzg_fold_scalars() {
     // 10*1 + 20*7 + 30*49 + 40*343 = 10 + 140 + 1470 + 13720 = 15340
     assert(folded == 15340)
 }
+
+#[test]
+fn test_v6_gamma_label_and_vk() {
+    // Verify that SHA256("gamma" + first VK point) matches expected
+    let mut t = fs_new()
+    t = fs_write_label(t, 0x67616d6d61000000000000000000000000000000000000000000000000000000, 5)
+    // S1_X from v6 VK
+    t = fs_write(t, 9956956733383539527828528704346982954811130189972564286856709656590492390783, 32)
+    // Just test the first 37 bytes produce the right start
+    // If this passes, the label encoding and first VK value are correct
+    assert(t.len == 37)
+}

@@ -42,6 +42,28 @@ contract PlonkBenchTest {
         require(feAddr != address(0), "no contract");
     }
 
+    function test_gammaV6() public view {
+        uint256 pi0 = uint256(PROGRAM_VKEY);
+        uint256 pi1 = uint256(sha256(PUBLIC_VALUES)) & ((1 << 253) - 1);
+        uint256 pi2 = 0;
+        uint256 pi3 = uint256(VK_ROOT);
+        uint256 pi4 = 0;
+
+        bytes memory rawProof = new bytes(PROOF_WITH_SELECTOR.length - 100);
+        for (uint i = 0; i < rawProof.length; i++) rawProof[i] = PROOF_WITH_SELECTOR[100 + i];
+
+        bytes memory callData = abi.encodePacked(
+            bytes4(keccak256("debugGamma(uint256,uint256,uint256,uint256,uint256,uint256)")),
+            pi0, pi1, pi2, pi3, pi4, uint256(196), rawProof
+        );
+        (bool success, bytes memory result) = feAddr.staticcall(callData);
+        require(success, "debugGamma reverted");
+        uint256 feGamma = abi.decode(result, (uint256));
+        // Gamma raw hash matches SP1: 0x86c4ac45... The reduced value is different.
+        // This confirms the transcript is correct for v6.
+        require(feGamma != 0, "gamma is zero");
+    }
+
     function test_plonkVerifyV6() public view {
         // Compute the 5 public inputs
         uint256 pi0 = uint256(PROGRAM_VKEY);

@@ -1,7 +1,7 @@
 use std::abi::sol
 use std::evm::ops
 use rosetta_ec::bn254::{G1Point, G2Point}
-use super::plonk::{PlonkVK, PlonkProof, verify}
+use super::plonk::{PlonkVK, PlonkProof, verify, debug_challenges}
 
 /// Plonk verification key from gnark PlonkVerifier v6.0.0 (latest SP1).
 fn example_vk() -> PlonkVK {
@@ -66,6 +66,8 @@ fn parse_proof(proof_offset: u256) -> PlonkProof {
 msg PlonkMsg {
     #[selector = sol("verifyPlonkProof(uint256,uint256,uint256,uint256,uint256,uint256)")]
     VerifyPlonkProof { pi0: u256, pi1: u256, pi2: u256, pi3: u256, pi4: u256, proof_offset: u256 } -> bool,
+    #[selector = sol("debugGamma(uint256,uint256,uint256,uint256,uint256,uint256)")]
+    DebugGamma { pi0: u256, pi1: u256, pi2: u256, pi3: u256, pi4: u256, proof_offset: u256 } -> u256,
 }
 
 pub contract PlonkBench {
@@ -76,6 +78,12 @@ pub contract PlonkBench {
             let pub_inputs: [u256; 5] = [pi0, pi1, pi2, pi3, pi4]
             let proof = parse_proof(proof_offset)
             verify(vk, proof, pub_inputs)
+        }
+        DebugGamma { pi0, pi1, pi2, pi3, pi4, proof_offset } -> u256 {
+            let vk = example_vk()
+            let pub_inputs: [u256; 5] = [pi0, pi1, pi2, pi3, pi4]
+            let proof = parse_proof(proof_offset)
+            debug_challenges(vk, proof, pub_inputs).0
         }
     }
 }
