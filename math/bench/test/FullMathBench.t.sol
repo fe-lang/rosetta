@@ -42,7 +42,7 @@ contract FullMathBenchTest {
         vm.pauseGasMetering();
 
         // Build Fe (Sonatina backend) via FFI
-        uint256 optLevel = vm.envOr("FE_SONA_OPT_LEVEL", uint256(0));
+        uint256 optLevel = vm.envOr("FE_SONA_OPT_LEVEL", uint256(2));
         require(optLevel <= 2, "BAD_FE_SONA_OPT_LEVEL");
 
         string[] memory cmd = new string[](7);

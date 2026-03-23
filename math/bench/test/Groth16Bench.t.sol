@@ -21,7 +21,7 @@ contract Groth16BenchTest {
     function setUp() public {
         vm.pauseGasMetering();
 
-        uint256 optLevel = vm.envOr("FE_SONA_OPT_LEVEL", uint256(0));
+        uint256 optLevel = vm.envOr("FE_SONA_OPT_LEVEL", uint256(2));
         string[] memory cmd = new string[](7);
         cmd[0] = "fe";
         cmd[1] = "build";

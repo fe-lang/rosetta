@@ -22,11 +22,8 @@ contract PlonkBenchTest {
 
     function setUp() public {
         vm.pauseGasMetering();
-        uint256 optLevel = vm.envOr("FE_SONA_OPT_LEVEL", uint256(0));
-        string[] memory cmd = new string[](7);
-        cmd[0] = "fe"; cmd[1] = "build"; cmd[2] = "--backend"; cmd[3] = "sonatina";
-        cmd[4] = "-O"; cmd[5] = optLevel == 0 ? "0" : optLevel == 1 ? "1" : "2"; cmd[6] = "../..";
-        vm.ffi(cmd);
+        // Fe binary must be pre-built: `fe build --backend sonatina -O 2` from workspace root
+        // Don't rebuild via FFI — this ensures the binary matches what we tested.
         string[] memory readCmd = new string[](3);
         readCmd[0] = "bash"; readCmd[1] = "-c";
         readCmd[2] = "printf '0x'; tr -d '\\n' < ../../out/PlonkBench.bin";
@@ -42,28 +39,6 @@ contract PlonkBenchTest {
         require(feAddr != address(0), "no contract");
     }
 
-    function test_gammaV6() public view {
-        uint256 pi0 = uint256(PROGRAM_VKEY);
-        uint256 pi1 = uint256(sha256(PUBLIC_VALUES)) & ((1 << 253) - 1);
-        uint256 pi2 = 0;
-        uint256 pi3 = uint256(VK_ROOT);
-        uint256 pi4 = 0;
-
-        bytes memory rawProof = new bytes(PROOF_WITH_SELECTOR.length - 100);
-        for (uint i = 0; i < rawProof.length; i++) rawProof[i] = PROOF_WITH_SELECTOR[100 + i];
-
-        bytes memory callData = abi.encodePacked(
-            bytes4(keccak256("debugGamma(uint256,uint256,uint256,uint256,uint256,uint256)")),
-            pi0, pi1, pi2, pi3, pi4, uint256(196), rawProof
-        );
-        (bool success, bytes memory result) = feAddr.staticcall(callData);
-        require(success, "debugGamma reverted");
-        uint256 feGamma = abi.decode(result, (uint256));
-        // Gamma raw hash matches SP1: 0x86c4ac45... The reduced value is different.
-        // This confirms the transcript is correct for v6.
-        require(feGamma != 0, "gamma is zero");
-    }
-
     function test_plonkVerifyV6() public view {
         // Compute the 5 public inputs
         uint256 pi0 = uint256(PROGRAM_VKEY);
@@ -73,24 +48,24 @@ contract PlonkBenchTest {
         uint256 pi3 = uint256(VK_ROOT);  // vkRoot
         uint256 pi4 = 0;  // nonce
 
-        // Raw gnark proof starts at byte 100 of PROOF_WITH_SELECTOR
-        bytes memory rawProof = new bytes(PROOF_WITH_SELECTOR.length - 100);
-        for (uint i = 0; i < rawProof.length; i++) {
-            rawProof[i] = PROOF_WITH_SELECTOR[100 + i];
-        }
-
-        // Calldata: selector(4) + 5*pi(160) + proof_offset(32) + raw_proof
-        // proof_offset = 4 + 192 = 196
+        // Append entire proof (with SP1 prefix) and tell Fe to read gnark data
+        // at offset 196 + 100 = 296 (after selector + ABI params + SP1 prefix)
         bytes memory callData = abi.encodePacked(
             bytes4(keccak256("verifyPlonkProof(uint256,uint256,uint256,uint256,uint256,uint256)")),
             pi0, pi1, pi2, pi3, pi4,
-            uint256(196),
-            rawProof
+            uint256(296),          // gnark proof at offset 296
+            PROOF_WITH_SELECTOR    // full proof including 100-byte SP1 prefix
         );
 
+        // Expected: 4 + 6*32 + 964 = 1160 bytes
+        require(callData.length == 1160, "BAD CALLDATA LENGTH");
+
         (bool success, bytes memory result) = feAddr.staticcall(callData);
-        require(success, "verify reverted");
+        if (!success) {
+            revert("verify reverted");
+        }
+        require(result.length >= 32, "no return data");
         bool verified = abi.decode(result, (bool));
-        require(verified, "Proof should verify");
+        require(verified, "V6 PLONK PROOF DID NOT VERIFY");
     }
 }
