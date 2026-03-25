@@ -50,20 +50,13 @@ contract PlonkBenchTest {
         uint256 pi3 = uint256(VK_ROOT);
         uint256 pi4 = 0;  // nonce
 
-        // Strip the 100-byte SP1 prefix (4 selector + 96 metadata)
-        // to get the raw 864-byte gnark proof
-        bytes memory rawProof = new bytes(PROOF_FULL.length - 100);
-        for (uint i = 0; i < rawProof.length; i++) {
-            rawProof[i] = PROOF_FULL[100 + i];
-        }
-
-        // Build calldata: selector + 6 params + raw proof
-        // gnark proof starts at calldata offset 4 + 6*32 = 196
+        // Pass full proof with SP1 prefix; gnark proof starts at offset 296
+        // (4 selector + 192 params + 100 SP1 prefix = 296)
         bytes memory callData = abi.encodePacked(
             bytes4(keccak256("verifyPlonkProof(uint256,uint256,uint256,uint256,uint256,uint256)")),
             pi0, pi1, pi2, pi3, pi4,
-            uint256(196),
-            rawProof
+            uint256(296),
+            PROOF_FULL
         );
 
         (bool success, bytes memory result) = feAddr.staticcall(callData);
