@@ -59,10 +59,17 @@ contract PlonkBenchTest {
             PROOF_FULL
         );
 
+        // Verify calldata is correct size: 4 + 192 + 964 = 1160
+        require(callData.length == 1160, "bad calldata size");
+
         (bool success, bytes memory result) = feAddr.staticcall(callData);
-        require(success, "verify reverted");
-        require(result.length >= 32, "no return data");
-        bool verified = abi.decode(result, (bool));
-        require(verified, "V6 PLONK PROOF MUST VERIFY");
+        if (!success) {
+            revert("Fe contract reverted");
+        }
+        if (result.length < 32) {
+            revert("no return data");
+        }
+        uint256 raw = abi.decode(result, (uint256));
+        require(raw == 1, string(abi.encodePacked("expected 1, got ", raw)));
     }
 }
