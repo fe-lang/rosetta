@@ -1,4 +1,4 @@
 [workspace]
 name = "rosetta-fe"
 version = "0.1.0"
-members = ["rosetta_math", "rosetta_merkle", "rosetta_ec", "rosetta_amm", "rosetta_verifier"]
+members = ["rosetta_math", "rosetta_merkle", "rosetta_ec", "rosetta_amm", "rosetta_verifier", "rosetta_poseidon"]

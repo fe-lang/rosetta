@@ -1,0 +1,16 @@
+use std::abi::sol
+use super::hash
+
+msg PoseidonMsg {
+    #[selector = sol("poseidon(uint256,uint256)")]
+    Hash { a: u256, b: u256 } -> u256,
+}
+
+pub contract PoseidonBench {
+    init() {}
+    recv PoseidonMsg {
+        Hash { a, b } -> u256 {
+            hash(a, b)
+        }
+    }
+}
