@@ -1,4 +1,4 @@
-> **🔬 Experimental** — These implementations are for illustrative and benchmarking purposes only. They have not been audited and should not be used in production.
+> **🔬 Experimental** — These implementations are for illustration and benchmarking purposes only. They have not been audited and should not be used in production.
 
 # rosetta-fe
 
