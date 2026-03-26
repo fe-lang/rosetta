@@ -1,0 +1,122 @@
+use std::abi::sol
+use std::evm::ops
+use ec::bn254::{G1Point, G2Point}
+use super::plonk::{PlonkVK, PlonkProof, verify, debug_challenges}
+
+/// Plonk verification key from gnark PlonkVerifier v6.0.0 (latest SP1).
+fn example_vk() -> PlonkVK {
+    PlonkVK {
+        n: 33554432,
+        n_inv: 21888242219518804655518433051623070663413851959604507555939307129453691614729,
+        omega: 19200870435978225707111062059747084165650991997241425080699860725083300967194,
+        nb_public_inputs: 5,
+        coset_shift: 5,
+        ql: G1Point { x: 10936403877113400171814029258586094421105837069937643866695822256928377913968, y: 17311182666118490454430265150735546359745608671115556843788944971563039300016 },
+        qr: G1Point { x: 16032802090162682725903814972017385562886704406468141346968145983310475511911, y: 16803777488545011133374943287703653910096989118082992957503857327508542673114 },
+        qm: G1Point { x: 7041740842251303753059524333065028234525995021747993588573234611770565484750, y: 7756772573841616356086078220846315947185632323121180681135487008638788536094 },
+        qo: G1Point { x: 8807113593766821411972572357967651651345992430818514862534237402324085851875, y: 9827115302746495531711628100661677137543191000457083504235238115987266270156 },
+        qk: G1Point { x: 4659055902458442531441402775737578699425178194825095727614170820825642511722, y: 2854792741677890224744936867769988448466277171603338196705997958237726289995 },
+        s: [
+            G1Point { x: 9956956733383539527828528704346982954811130189972564286856709656590492390783, y: 16561941243254960602343726886092320314575403533969071986056337989120686189882 },
+            G1Point { x: 20374741449540543556499660179263983188390530543434373332462519860014413516289, y: 8513455195626237033487485922347652175901063415320070186421575800344119284165 },
+            G1Point { x: 17142227368091895742859950676182428277541451282467607716193503860042663502549, y: 12829174888268721439052436070745892278566825005271705420525175951948128646413 },
+        ],
+        qcp: [
+            G1Point { x: 8032592088052402119252717716570843753829708920203926363246235929861264130729, y: 13824231045893282984607165590437904083147145250603202024200081150405773221988 },
+        ],
+        commit_constraint_idx: [25298720],
+        g2_srs: [
+            G2Point { x_imag: 11559732032986387107991004021392285783925812861821192530917403151452391805634, x_real: 10857046999023057135944570762232829481370756359578518086990519993285655852781, y_imag: 4082367875863433681332203403145435568316851327593401208105741076214120093531, y_real: 8495653923123431417604973247489272438418190587263600148770280649306958101930 },
+            G2Point { x_imag: 15805639136721018565402881920352193254830339253282065586954346329754995870280, x_real: 19089565590083334368588890253123139704298730990782503769911324779715431555531, y_imag: 9779648407879205346559610309258181044130619080926897934572699915909528404984, y_real: 6779728121489434657638426458390319301070371227460768374343986326751507916979 },
+        ],
+        g1_srs: G1Point { x: 14312776538779914388377568895031746459131577658076416373430523308756343304251, y: 11763105256161367503191792604679297387056316997144156930871823008787082098465 },
+    }
+}
+
+fn parse_proof(proof_offset: u256) -> PlonkProof {
+    PlonkProof {
+        lro: [
+            G1Point { x: ops::calldataload(proof_offset), y: ops::calldataload(proof_offset + 0x20) },
+            G1Point { x: ops::calldataload(proof_offset + 0x40), y: ops::calldataload(proof_offset + 0x60) },
+            G1Point { x: ops::calldataload(proof_offset + 0x80), y: ops::calldataload(proof_offset + 0xa0) },
+        ],
+        z: G1Point { x: ops::calldataload(proof_offset + 0x220), y: ops::calldataload(proof_offset + 0x240) },
+        h: [
+            G1Point { x: ops::calldataload(proof_offset + 0xc0), y: ops::calldataload(proof_offset + 0xe0) },
+            G1Point { x: ops::calldataload(proof_offset + 0x100), y: ops::calldataload(proof_offset + 0x120) },
+            G1Point { x: ops::calldataload(proof_offset + 0x140), y: ops::calldataload(proof_offset + 0x160) },
+        ],
+        bsb22_commitments: [
+            G1Point { x: ops::calldataload(proof_offset + 0x320), y: ops::calldataload(proof_offset + 0x340) },
+        ],
+        batched_h: G1Point { x: ops::calldataload(proof_offset + 0x280), y: ops::calldataload(proof_offset + 0x2a0) },
+        claimed_values: [
+            ops::calldataload(proof_offset + 0x180),
+            ops::calldataload(proof_offset + 0x1a0),
+            ops::calldataload(proof_offset + 0x1c0),
+            ops::calldataload(proof_offset + 0x1e0),
+            ops::calldataload(proof_offset + 0x200),
+            ops::calldataload(proof_offset + 0x300),
+        ],
+        z_shifted_h: G1Point { x: ops::calldataload(proof_offset + 0x2c0), y: ops::calldataload(proof_offset + 0x2e0) },
+        z_shifted_value: ops::calldataload(proof_offset + 0x260),
+    }
+}
+
+msg VKFieldMsg {
+    #[selector = sol("getN()")]
+    GetN -> u256,
+    #[selector = sol("getS0X()")]
+    GetS0X -> u256,
+}
+
+pub contract VKFieldTest {
+    init() {}
+    recv VKFieldMsg {
+        GetN -> u256 {
+            let vk = example_vk()
+            vk.n
+        }
+        GetS0X -> u256 {
+            let vk = example_vk()
+            vk.s[0].x
+        }
+    }
+}
+
+#[test]
+fn test_vk_field_via_contract() uses (evm: mut Evm) {
+    let c = evm.create2<VKFieldTest>(value: 0, args: (), salt: 0)
+    assert(c.inner != 0)
+
+    let n: u256 = evm.call(addr: c, gas: 10000000, value: 0, message: VKFieldMsg::GetN {})
+    assert(n == 33554432)
+
+    let s0x: u256 = evm.call(addr: c, gas: 10000000, value: 0, message: VKFieldMsg::GetS0X {})
+    assert(s0x == 9956956733383539527828528704346982954811130189972564286856709656590492390783)
+}
+
+msg PlonkMsg {
+    #[selector = sol("verifyPlonkProof(uint256,uint256,uint256,uint256,uint256,uint256)")]
+    VerifyPlonkProof { pi0: u256, pi1: u256, pi2: u256, pi3: u256, pi4: u256, proof_offset: u256 } -> bool,
+    #[selector = sol("debugGamma(uint256,uint256,uint256,uint256,uint256,uint256)")]
+    DebugGamma { pi0: u256, pi1: u256, pi2: u256, pi3: u256, pi4: u256, proof_offset: u256 } -> u256,
+}
+
+pub contract PlonkBench {
+    init() {}
+    recv PlonkMsg {
+        VerifyPlonkProof { pi0, pi1, pi2, pi3, pi4, proof_offset } -> bool {
+            let vk = example_vk()
+            let pub_inputs: [u256; 5] = [pi0, pi1, pi2, pi3, pi4]
+            let proof = parse_proof(proof_offset)
+            verify(vk, proof, pub_inputs)
+        }
+        DebugGamma { pi0, pi1, pi2, pi3, pi4, proof_offset } -> u256 {
+            let vk = example_vk()
+            let pub_inputs: [u256; 5] = [pi0, pi1, pi2, pi3, pi4]
+            let proof = parse_proof(proof_offset)
+            debug_challenges(vk, proof, pub_inputs).0
+        }
+    }
+}

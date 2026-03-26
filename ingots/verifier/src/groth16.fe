@@ -1,0 +1,89 @@
+use ec::bn254::{G1Point, G2Point, ec_add, ec_mul, negate}
+use std::evm::ops
+
+/// Groth16 proof verification on BN254.
+/// Semantically equivalent to snarkJS's verifier_groth16.sol.ejs template.
+///
+/// The snarkJS template generates 165 lines of pure assembly per circuit.
+/// Each circuit gets a fresh Solidity file with hardcoded verification keys
+/// and all EC operations done via raw mstore/staticcall.
+///
+/// Fe version: the verifier is a reusable function parameterized by a
+/// VerifyingKey struct. The same code works for any circuit — swap the
+/// key, not the verifier. EC operations use the bn254 module.
+
+/// BN254 scalar field order.
+const SCALAR_FIELD: u256 = 21888242871839275222246405745257275088548364400416034343698204186575808495617
+
+pub struct VerifyingKey {
+    pub alpha1: G1Point,
+    pub beta2: G2Point,
+    pub gamma2: G2Point,
+    pub delta2: G2Point,
+    pub ic: [G1Point; 2],  // IC[0] and IC[1] for 1-input circuits
+}
+
+pub struct Proof {
+    pub a: G1Point,
+    pub b: G2Point,
+    pub c: G1Point,
+}
+
+/// Verify a Groth16 proof with 1 public input.
+///
+/// Checks: e(-A, B) * e(alpha, beta) * e(vk_x, gamma) * e(C, delta) == 1
+/// where vk_x = IC[0] + input[0] * IC[1]
+pub fn verify(vk: VerifyingKey, proof: Proof, input: u256) -> bool {
+    // Validate input is in the scalar field
+    if input >= SCALAR_FIELD {
+        ops::revert(0, 0)
+    }
+
+    // Compute vk_x = IC[0] + input * IC[1]
+    let mul_result = ec_mul(vk.ic[1], input)
+    let vk_x = ec_add(vk.ic[0], mul_result)
+
+    // Negate proof.A for the pairing check
+    let neg_a = negate(proof.a)
+
+    // Pairing check: e(-A, B) * e(alpha, beta) * e(vk_x, gamma) * e(C, delta) == 1
+    // This is done via the ecPairing precompile (address 0x08) with 4 pairs
+    let ptr = std::evm::alloc(768)  // 4 pairs × 192 bytes each
+
+    // Pair 1: (-A, B)
+    ops::mstore(ptr, neg_a.x)
+    ops::mstore(ptr + 32, neg_a.y)
+    ops::mstore(ptr + 64, proof.b.x_imag)
+    ops::mstore(ptr + 96, proof.b.x_real)
+    ops::mstore(ptr + 128, proof.b.y_imag)
+    ops::mstore(ptr + 160, proof.b.y_real)
+
+    // Pair 2: (alpha, beta)
+    ops::mstore(ptr + 192, vk.alpha1.x)
+    ops::mstore(ptr + 224, vk.alpha1.y)
+    ops::mstore(ptr + 256, vk.beta2.x_imag)
+    ops::mstore(ptr + 288, vk.beta2.x_real)
+    ops::mstore(ptr + 320, vk.beta2.y_imag)
+    ops::mstore(ptr + 352, vk.beta2.y_real)
+
+    // Pair 3: (vk_x, gamma)
+    ops::mstore(ptr + 384, vk_x.x)
+    ops::mstore(ptr + 416, vk_x.y)
+    ops::mstore(ptr + 448, vk.gamma2.x_imag)
+    ops::mstore(ptr + 480, vk.gamma2.x_real)
+    ops::mstore(ptr + 512, vk.gamma2.y_imag)
+    ops::mstore(ptr + 544, vk.gamma2.y_real)
+
+    // Pair 4: (C, delta)
+    ops::mstore(ptr + 576, proof.c.x)
+    ops::mstore(ptr + 608, proof.c.y)
+    ops::mstore(ptr + 640, vk.delta2.x_imag)
+    ops::mstore(ptr + 672, vk.delta2.x_real)
+    ops::mstore(ptr + 704, vk.delta2.y_imag)
+    ops::mstore(ptr + 736, vk.delta2.y_real)
+
+    let success = ops::staticcall(ops::gas(), 8, ptr, 768, ptr, 32)
+    if success == 0 { ops::revert(0, 0) }
+
+    ops::mload(ptr) == 1
+}
