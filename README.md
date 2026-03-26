@@ -23,3 +23,5 @@ FE_SONA_OPT_LEVEL=2 forge test --match-test testGas -vv
 ```
 
 Requires [Fe](https://github.com/ethereum/fe) and [Foundry](https://book.getfoundry.sh/).
+
+These implementations are for illustrative and benchmarking purposes only. They have not been audited and should not be used in production.
