@@ -127,7 +127,7 @@ struct OwnerStore {
 //  Contract — all facets compose into one dispatch table
 // ============================================================
 
-pub contract TileDiamond uses (ctx: Ctx) {
+pub contract TokenGovernanceDiamond uses (ctx: Ctx) {
     mut tile_types: TileTypeStore
     mut craft_queue: CraftQueueStore
     mut tokens: TokenStore
@@ -304,7 +304,7 @@ pub contract TileDiamond uses (ctx: Ctx) {
 
 #[test]
 fn test_deploy_and_add_tile_type() uses (evm: mut Evm) {
-    let app = evm.create2<TileDiamond>(value: 0, args: (), salt: 0)
+    let app = evm.create2<TokenGovernanceDiamond>(value: 0, args: (), salt: 0)
     assert(app.inner != 0)
 
     // Add a tile type: 2x2, 10 blocks craft time
@@ -330,7 +330,7 @@ fn test_deploy_and_add_tile_type() uses (evm: mut Evm) {
 
 #[test]
 fn test_craft_and_claim() uses (evm: mut Evm) {
-    let app = evm.create2<TileDiamond>(value: 0, args: (), salt: 1)
+    let app = evm.create2<TokenGovernanceDiamond>(value: 0, args: (), salt: 1)
 
     // Get the caller address (the test contract, which is also the owner)
     let caller_raw: u256 = evm.call(
@@ -371,7 +371,7 @@ fn test_craft_and_claim() uses (evm: mut Evm) {
 
 #[test]
 fn test_equip_unequip() uses (evm: mut Evm) {
-    let app = evm.create2<TileDiamond>(value: 0, args: (), salt: 2)
+    let app = evm.create2<TokenGovernanceDiamond>(value: 0, args: (), salt: 2)
     let caller_raw: u256 = evm.call(
         addr: app, gas: 100000, value: 0,
         message: AdminFacet::Owner {},
@@ -419,7 +419,7 @@ fn test_equip_unequip() uses (evm: mut Evm) {
 #[test]
 fn test_erc1155_transfer() uses (evm: mut Evm) {
     let bob = Address { inner: 0xB0 }
-    let app = evm.create2<TileDiamond>(value: 0, args: (), salt: 3)
+    let app = evm.create2<TokenGovernanceDiamond>(value: 0, args: (), salt: 3)
     let caller_raw: u256 = evm.call(
         addr: app, gas: 100000, value: 0,
         message: AdminFacet::Owner {},
@@ -477,7 +477,7 @@ fn test_erc1155_transfer() uses (evm: mut Evm) {
 #[test]
 fn test_operator_approval() uses (evm: mut Evm) {
     let operator = Address { inner: 0x0F }
-    let app = evm.create2<TileDiamond>(value: 0, args: (), salt: 4)
+    let app = evm.create2<TokenGovernanceDiamond>(value: 0, args: (), salt: 4)
     let caller_raw: u256 = evm.call(
         addr: app, gas: 100000, value: 0,
         message: AdminFacet::Owner {},
