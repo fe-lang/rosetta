@@ -7,7 +7,7 @@ use std::evm::ops
 /// branchless pair sorting via `shl(5, gt(...))`, raw keccak256 calls.
 ///
 /// Fe version: same algorithm, plain code. The compiler handles memory layout.
-pub fn verify(proof: [u256; 32], proof_len: u256, root: u256, leaf: u256) -> bool {
+pub fn verify(proof: [u256; 32], proof_len: usize, root: u256, leaf: u256) -> bool {
     compute_root(proof, proof_len, leaf) == root
 }
 

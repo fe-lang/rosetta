@@ -1,4 +1,4 @@
-/// Aavegotchi Tile Diamond — ported to Fe from the Solidity EIP-2535 Diamond.
+/// Craftable NFT Diamond — Fe version.
 ///
 /// The Solidity version requires: a Diamond proxy with delegatecall fallback,
 /// LibDiamond for selector-to-facet mapping, diamondCut for runtime upgrades,
@@ -6,10 +6,10 @@
 ///
 /// The Fe version compiles all facets into one contract with one dispatch
 /// table. Each recv block declares the storage it can access via effects.
-/// The compiler enforces isolation — TileFacet handlers cannot write
+/// The compiler enforces isolation — CraftFacet handlers cannot write
 /// ERC1155 state and vice versa.
 ///
-/// Ported from: https://github.com/aavegotchi/aavegotchi-tile-diamond
+/// Based on the EIP-2535 Diamond pattern.
 ///
 /// Dropped: ERC998 parent-child NFT tracking, cross-diamond calls,
 /// meta-transactions, GLMR burn, marketplace hooks.
