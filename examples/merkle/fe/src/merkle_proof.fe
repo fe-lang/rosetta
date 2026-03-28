@@ -12,13 +12,10 @@ pub fn verify(proof: [u256; 32], proof_len: u256, root: u256, leaf: u256) -> boo
 }
 
 /// Compute a Merkle root from a leaf and proof.
-pub fn compute_root(proof: [u256; 32], proof_len: u256, leaf: u256) -> u256 {
+pub fn compute_root(proof: [u256; 32], proof_len: usize, leaf: u256) -> u256 {
     let scratch = std::evm::alloc(64)
     let mut hash = leaf
-    let len: usize = proof_len as usize
-
-    let mut i: usize = 0
-    while i < len {
+    for i in 0..proof_len {
         let sibling = proof[i]
         if hash < sibling {
             ops::mstore(scratch, hash)
@@ -28,7 +25,6 @@ pub fn compute_root(proof: [u256; 32], proof_len: u256, leaf: u256) -> u256 {
             ops::mstore(scratch + 32, hash)
         }
         hash = ops::keccak256(scratch, 64)
-        i = i + 1
     }
     hash
 }

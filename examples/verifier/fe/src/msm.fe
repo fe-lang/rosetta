@@ -1,16 +1,10 @@
 use ec::bn254::G1Point
 
 /// Multi-scalar multiplication: sum(scalars[i] * points[i]).
-///
-/// In Solidity, MSM is the biggest source of code bloat — each term
-/// needs inline assembly for ecMul and ecAdd with manual memory layout.
-/// In Fe, it's a loop with + and .scale().
 pub fn msm<const N: usize>(points: [G1Point; N], scalars: [u256; N]) -> G1Point {
     let mut acc = points[0].scale(scalars[0])
-    let mut i: usize = 1
-    while i < N {
+    for i in 1..N {
         acc = acc + points[i].scale(scalars[i])
-        i = i + 1
     }
     acc
 }

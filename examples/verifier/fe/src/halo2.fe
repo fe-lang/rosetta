@@ -79,14 +79,11 @@ pub struct Halo2Proof {
 ///   ...
 ///
 /// In Fe: a loop.
-pub fn read_field_elements_from_calldata(offset: u256, count: u256) -> [u256; 32] {
+pub fn read_field_elements_from_calldata(offset: u256, count: usize) -> [u256; 32] {
     let mut elems: [u256; 32] = [0; 32]
-    let mut i: usize = 0
-    let n: usize = count as usize
-    while i < n {
+    for i in 0..count {
         let raw = ops::calldataload(offset + (i as u256) * 32)
         elems[i] = raw % F_Q
-        i = i + 1
     }
     elems
 }
@@ -131,18 +128,13 @@ pub fn derive_challenges(
     t = t.write_u256(vk.transcript_init)
 
     // Append instance evaluations
-    let mut i: usize = 0
-    while i < 1 {
+    for i in 0..1 {
         t = t.write_u256(proof.instance_evals[i])
-        i = i + 1
     }
 
     // Append advice commitments
-    i = 0
-    while i < 5 {
-        t = t.write_u256(proof.advice_comms[i].x)
-        t = t.write_u256(proof.advice_comms[i].y)
-        i = i + 1
+    for i in 0..5 {
+        t = t.write_g1(proof.advice_comms[i])
     }
 
     // Squeeze challenges
@@ -163,22 +155,16 @@ pub fn derive_challenges(
     t = result.2
 
     // Append permutation commitments for alpha
-    i = 0
-    while i < 4 {
-        t = t.write_u256(proof.permutation_z_comms[i].x)
-        t = t.write_u256(proof.permutation_z_comms[i].y)
-        i = i + 1
+    for i in 0..4 {
+        t = t.write_g1(proof.permutation_z_comms[i])
     }
     let result = t.squeeze()
     let alpha = result.0
     t = result.2
 
     // Append quotient commitments for x (evaluation point)
-    i = 0
-    while i < 4 {
-        t = t.write_u256(proof.h_comms[i].x)
-        t = t.write_u256(proof.h_comms[i].y)
-        i = i + 1
+    for i in 0..4 {
+        t = t.write_g1(proof.h_comms[i])
     }
     let result = t.squeeze()
     let x = result.0
