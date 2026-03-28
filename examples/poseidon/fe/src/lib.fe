@@ -1,64 +1,55 @@
 /// Poseidon hash over BN254 (T=3, 2-input).
 ///
-/// The iden3 Poseidon used by Semaphore, MACI, Tornado Cash.
 /// In Solidity this is generated as raw EVM bytecode by JavaScript.
 /// In Fe it's readable code with typed field arithmetic.
 ///
-/// Depends on: sonatina fix for stack object overflow at scale (sonatina#227).
-/// The Fp type works at small scale but crashes the backend when composed
-/// in 57+ loop iterations with large const arrays.
+/// Depends on: sonatina#227 fix (Fp type at scale).
 
 pub use constants::{PRIME, C, S, M, P_MAT, N_ROUNDS_F, N_ROUNDS_P}
 pub use fp::Fp
 
+/// MDS matrix multiply: state = mat * state
+/// Depends on: returning [Fp; 3] from a function (sonatina#227).
+fn mds(s0: Fp, s1: Fp, s2: Fp, mat: [[u256; 3]; 3]) -> (Fp, Fp, Fp) {
+    (
+        Fp::new(mat[0][0]) * s0 + Fp::new(mat[1][0]) * s1 + Fp::new(mat[2][0]) * s2,
+        Fp::new(mat[0][1]) * s0 + Fp::new(mat[1][1]) * s1 + Fp::new(mat[2][1]) * s2,
+        Fp::new(mat[0][2]) * s0 + Fp::new(mat[1][2]) * s1 + Fp::new(mat[2][2]) * s2,
+    )
+}
+
+/// Full S-box round: pow5 + add round constants + MDS mix.
+fn full_round(s0: Fp, s1: Fp, s2: Fp, rc: usize, mat: [[u256; 3]; 3]) -> (Fp, Fp, Fp) {
+    let s0 = s0.pow5() + Fp::new(C[rc])
+    let s1 = s1.pow5() + Fp::new(C[rc + 1])
+    let s2 = s2.pow5() + Fp::new(C[rc + 2])
+    mds(s0, s1, s2, mat)
+}
+
 /// Poseidon hash of two field elements.
 pub fn hash(a: u256, b: u256) -> u256 {
-    let mut s0 = Fp::new(0)
-    let mut s1 = Fp::new(a)
-    let mut s2 = Fp::new(b)
-
-    // Initial round constants
-    s0 = s0 + Fp::new(C[0])
-    s1 = s1 + Fp::new(C[1])
-    s2 = s2 + Fp::new(C[2])
+    let mut s0 = Fp::new(0) + Fp::new(C[0])
+    let mut s1 = Fp::new(a) + Fp::new(C[1])
+    let mut s2 = Fp::new(b) + Fp::new(C[2])
 
     // First half full rounds
     for r in 0..N_ROUNDS_F / 2 - 1 {
-        s0 = s0.pow5()
-        s1 = s1.pow5()
-        s2 = s2.pow5()
-        let rc: usize = (r + 1) * 3
-        s0 = s0 + Fp::new(C[rc])
-        s1 = s1 + Fp::new(C[rc + 1])
-        s2 = s2 + Fp::new(C[rc + 2])
-        let t0 = Fp::new(M[0][0]) * s0 + Fp::new(M[1][0]) * s1 + Fp::new(M[2][0]) * s2
-        let t1 = Fp::new(M[0][1]) * s0 + Fp::new(M[1][1]) * s1 + Fp::new(M[2][1]) * s2
-        let t2 = Fp::new(M[0][2]) * s0 + Fp::new(M[1][2]) * s1 + Fp::new(M[2][2]) * s2
-        s0 = t0
-        s1 = t1
-        s2 = t2
+        let result = full_round(s0, s1, s2, (r + 1) * 3, M)
+        s0 = result.0
+        s1 = result.1
+        s2 = result.2
     }
 
-    // Pre-sparse round
-    s0 = s0.pow5()
-    s1 = s1.pow5()
-    s2 = s2.pow5()
-    let rc: usize = (N_ROUNDS_F / 2) * 3
-    s0 = s0 + Fp::new(C[rc])
-    s1 = s1 + Fp::new(C[rc + 1])
-    s2 = s2 + Fp::new(C[rc + 2])
-    let t0 = Fp::new(P_MAT[0][0]) * s0 + Fp::new(P_MAT[1][0]) * s1 + Fp::new(P_MAT[2][0]) * s2
-    let t1 = Fp::new(P_MAT[0][1]) * s0 + Fp::new(P_MAT[1][1]) * s1 + Fp::new(P_MAT[2][1]) * s2
-    let t2 = Fp::new(P_MAT[0][2]) * s0 + Fp::new(P_MAT[1][2]) * s1 + Fp::new(P_MAT[2][2]) * s2
-    s0 = t0
-    s1 = t1
-    s2 = t2
+    // Pre-sparse round (uses P_MAT instead of M)
+    let result = full_round(s0, s1, s2, (N_ROUNDS_F / 2) * 3, P_MAT)
+    s0 = result.0
+    s1 = result.1
+    s2 = result.2
 
-    // Partial rounds (sparse matrix)
+    // Partial rounds (S-box on first element only, sparse matrix)
     for r in 0..N_ROUNDS_P {
-        s0 = s0.pow5()
-        s0 = s0 + Fp::new(C[(N_ROUNDS_F / 2 + 1) * 3 + r])
-        let off: usize = (3 * 2 - 1) * r
+        s0 = s0.pow5() + Fp::new(C[(N_ROUNDS_F / 2 + 1) * 3 + r])
+        let off: usize = 5 * r
         let new_s0 = Fp::new(S[off]) * s0 + Fp::new(S[off + 1]) * s1 + Fp::new(S[off + 2]) * s2
         s1 = s1 + s0 * Fp::new(S[off + 3])
         s2 = s2 + s0 * Fp::new(S[off + 4])
@@ -67,27 +58,18 @@ pub fn hash(a: u256, b: u256) -> u256 {
 
     // Second half full rounds
     for r in 0..N_ROUNDS_F / 2 - 1 {
-        s0 = s0.pow5()
-        s1 = s1.pow5()
-        s2 = s2.pow5()
-        let rc: usize = (N_ROUNDS_F / 2 + 1) * 3 + N_ROUNDS_P + r * 3
-        s0 = s0 + Fp::new(C[rc])
-        s1 = s1 + Fp::new(C[rc + 1])
-        s2 = s2 + Fp::new(C[rc + 2])
-        let t0 = Fp::new(M[0][0]) * s0 + Fp::new(M[1][0]) * s1 + Fp::new(M[2][0]) * s2
-        let t1 = Fp::new(M[0][1]) * s0 + Fp::new(M[1][1]) * s1 + Fp::new(M[2][1]) * s2
-        let t2 = Fp::new(M[0][2]) * s0 + Fp::new(M[1][2]) * s1 + Fp::new(M[2][2]) * s2
-        s0 = t0
-        s1 = t1
-        s2 = t2
+        let result = full_round(s0, s1, s2, (N_ROUNDS_F / 2 + 1) * 3 + N_ROUNDS_P + r * 3, M)
+        s0 = result.0
+        s1 = result.1
+        s2 = result.2
     }
 
-    // Final round
-    s0 = s0.pow5()
-    s1 = s1.pow5()
-    s2 = s2.pow5()
-    let t0 = Fp::new(M[0][0]) * s0 + Fp::new(M[1][0]) * s1 + Fp::new(M[2][0]) * s2
-    t0.val
+    // Final round (no round constants)
+    let s0 = s0.pow5()
+    let s1 = s1.pow5()
+    let s2 = s2.pow5()
+    let result = mds(s0, s1, s2, M)
+    result.0.val
 }
 
 // Tests depend on sonatina#227 fix.

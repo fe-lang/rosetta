@@ -1,12 +1,8 @@
 /// Constant-product AMM (x * y = k).
 ///
-/// Fe features at work:
-/// - `msg`/`recv` exhaustive dispatch
-/// - Effects: `uses (mut store)` for writes, `uses (store)` for reads
-/// - `if` as expression for the swap calculation
-/// - Expression-oriented: last expression is return value
-/// - The swap function uses typed reserves internally to prevent
-///   accidentally mixing reserve_a and reserve_b in the calculation.
+/// Effects-based storage + context. Each handler declares exactly
+/// what it can access. Read-only handlers use (store), mutating
+/// handlers use (mut store, ctx).
 
 use std::abi::sol
 
@@ -25,13 +21,18 @@ msg AmmMsg {
     GetK -> u256,
 }
 
+// Depends on: events (#[event] attribute + Log effect).
+// #[event]
+// struct Swap { sender: Address, amount_in: u256, amount_out: u256 }
+// #[event]
+// struct LiquidityAdded { sender: Address, amount_a: u256, amount_b: u256 }
+
 struct AmmStore {
     reserve_a: u256,
     reserve_b: u256,
 }
 
-/// Constant-product swap: given dx of one reserve, return dy of the other.
-/// dy = reserve_out * dx / (reserve_in + dx)
+/// Constant-product swap: dy = reserve_out * dx / (reserve_in + dx)
 fn swap_amount(reserve_in: u256, reserve_out: u256, amount_in: u256) -> u256 {
     if amount_in == 0 || reserve_in == 0 || reserve_out == 0 {
         0
@@ -40,7 +41,7 @@ fn swap_amount(reserve_in: u256, reserve_out: u256, amount_in: u256) -> u256 {
     }
 }
 
-pub contract SimpleAmm {
+pub contract SimpleAmm uses (ctx: Ctx) {
     mut store: AmmStore
 
     init() uses (mut store) {

@@ -1,20 +1,16 @@
 /// ERC-20 token in Fe.
 ///
-/// Compare with OpenZeppelin's ERC20.sol (~400 lines across 3 files
-/// with abstract contracts, inheritance, and virtual/override).
-///
-/// Fe version: one file, no inheritance, exhaustive msg dispatch,
-/// effects declare exactly what each handler can access.
-///
-/// Notable:
-/// - Transfer can mutate storage + read caller. BalanceOf can ONLY read.
-///   Compiler enforced via effects, not just a `view` annotation.
-/// - StorageMap<(Address, Address), u256> for allowances — tuple keys.
-/// - msg variants are an algebraic type. Missing a handler is a compile error.
-/// - The same Erc20 msg type can be used by other contracts to make
-///   typed cross-contract calls. Both sides share the type definition.
+/// One file, no inheritance, exhaustive msg dispatch. Effects declare
+/// exactly what each handler can access. Transfer handlers return Result
+/// instead of bool — errors are typed, not just false.
 
 use std::abi::sol
+use core::ops::Eq
+
+pub enum TransferError {
+    InsufficientBalance,
+    InsufficientAllowance,
+}
 
 msg Erc20 {
     #[selector = sol("totalSupply()")]
@@ -42,6 +38,18 @@ struct TokenStore {
     allowances: StorageMap<(Address, Address), u256>,
 }
 
+/// Internal transfer logic returning typed errors.
+/// Depends on: Result as msg return type (may need ABI encoding for Result).
+fn do_transfer(mut store: TokenStore, from: Address, to: Address, amount: u256) -> Result<TransferError, bool> {
+    let bal = store.balances.get(key: from)
+    if bal < amount {
+        return Result::Err(TransferError::InsufficientBalance)
+    }
+    store.balances.set(key: from, value: bal - amount)
+    store.balances.set(key: to, value: store.balances.get(key: to) + amount)
+    Result::Ok(true)
+}
+
 pub contract Token uses (ctx: Ctx) {
     mut store: TokenStore
 
@@ -51,14 +59,12 @@ pub contract Token uses (ctx: Ctx) {
     }
 
     recv Erc20 {
-        // Read-only: uses (store) — cannot write, cannot call, cannot log.
         TotalSupply -> u256 uses (store) { store.total_supply }
         BalanceOf { account } -> u256 uses (store) { store.balances.get(key: account) }
         Allowance { owner, spender } -> u256 uses (store) {
             store.allowances.get(key: (owner, spender))
         }
 
-        // State-changing: uses (mut store, ctx) — can write + read caller.
         Transfer { to, amount } -> bool uses (mut store, ctx) {
             let from = ctx.caller()
             let bal = store.balances.get(key: from)
@@ -94,8 +100,6 @@ pub contract Token uses (ctx: Ctx) {
     }
 }
 
-// --- Tests ---
-
 #[test]
 fn test_deploy_and_check_supply() uses (evm: mut Evm) {
     let owner = Address { inner: 1 }
@@ -112,15 +116,8 @@ fn test_deploy_and_check_supply() uses (evm: mut Evm) {
 #[test]
 fn test_transfer() uses (evm: mut Evm) {
     let alice = Address { inner: 0xA11CE }
-    let bob = Address { inner: 0xB0B }
-
     let token = evm.create2<Token>(value: 0, args: (0, alice), salt: 1)
 
-    // Mint to the test runner, then transfer
-    let me_inner: u256 = evm.call(addr: token, gas: 100000, value: 0,
-        message: Erc20::BalanceOf { account: Address { inner: 0 } })
-
-    // Mint 500 to alice directly
     evm.call(addr: token, gas: 100000, value: 0, message: Mintable::Mint { to: alice, amount: 500 })
 
     let bal: u256 = evm.call(addr: token, gas: 100000, value: 0, message: Erc20::BalanceOf { account: alice })
@@ -134,7 +131,6 @@ fn test_allowance() uses (evm: mut Evm) {
 
     let token = evm.create2<Token>(value: 0, args: (1000, owner), salt: 2)
 
-    // Check zero allowance
     let a: u256 = evm.call(addr: token, gas: 100000, value: 0,
         message: Erc20::Allowance { owner, spender })
     assert(a == 0)
