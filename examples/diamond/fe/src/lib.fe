@@ -17,6 +17,10 @@ msg TokenMsg {
     TotalSupply -> u256,
 }
 
+/// Typed proposal ID — prevents mixing with other u256 values.
+struct ProposalId { pub val: u256 }
+impl Copy for ProposalId {}
+
 msg GovMsg {
     #[selector = sol("propose(uint256)")]
     Propose { description: u256 } -> u256,
@@ -37,7 +41,7 @@ struct TokenStore {
     balances: StorageMap<Address, u256>,
 }
 
-/// Depends on: impl WordRepr for Address (on std-fixed-point-and-crypto branch).
+/// Depends on: impl WordRepr for Address, impl StorageKey for ProposalId.
 struct GovStore {
     proposal_count: u256,
     votes_for: StorageMap<u256, u256>,

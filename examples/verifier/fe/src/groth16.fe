@@ -27,12 +27,14 @@ impl ScalarInput {
     }
 }
 
-pub struct VerifyingKey {
+/// Verification key parameterized by public input count.
+/// Depends on: const arithmetic in array type position ([G1Point; N + 1]).
+pub struct VerifyingKey<const N: usize> {
     pub alpha1: G1Point,
     pub beta2: G2Point,
     pub gamma2: G2Point,
     pub delta2: G2Point,
-    pub ic: [G1Point; 2],  // IC[0] and IC[1] for 1-input circuits
+    pub ic: [G1Point; N + 1],
 }
 
 pub struct Proof {
@@ -41,15 +43,14 @@ pub struct Proof {
     pub c: G1Point,
 }
 
-/// Verify a Groth16 proof with 1 public input.
-///
-/// Checks: e(-A, B) * e(alpha, beta) * e(vk_x, gamma) * e(C, delta) == 1
-/// where vk_x = IC[0] + input[0] * IC[1]
-/// Verify a Groth16 proof with 1 public input.
-/// The input is validated on construction (ScalarInput::new asserts < SCALAR_FIELD).
-pub fn verify(vk: VerifyingKey, proof: Proof, input: ScalarInput) -> bool {
-    // Compute vk_x = IC[0] + input * IC[1]
-    let vk_x = vk.ic[0] + vk.ic[1].scale(input.val)
+/// Verify a Groth16 proof with N public inputs.
+/// Inputs are validated on construction (ScalarInput::new asserts < SCALAR_FIELD).
+pub fn verify<const N: usize>(vk: VerifyingKey<N>, proof: Proof, inputs: [ScalarInput; N]) -> bool {
+    // Compute vk_x = IC[0] + sum(inputs[i] * IC[i+1])
+    let mut vk_x = vk.ic[0]
+    for i in 0..N {
+        vk_x = vk_x + vk.ic[i + 1].scale(inputs[i].val)
+    }
 
     // Negate proof.A for the pairing check
     let neg_a = negate(proof.a)
