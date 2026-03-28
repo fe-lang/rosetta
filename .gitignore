@@ -2,10 +2,3 @@ out/
 cache/
 lib/
 target/
-out/
-target/
-fe-build-report/
-fe-build-report.tar.gz
-math/bench/out/
-math/bench/cache/
-*.py

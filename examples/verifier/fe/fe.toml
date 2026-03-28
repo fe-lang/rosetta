@@ -1,0 +1,6 @@
+[ingot]
+name = "verifier"
+version = "0.1.0"
+
+[dependencies]
+ec = { path = "../../../shared/ec/fe" }
