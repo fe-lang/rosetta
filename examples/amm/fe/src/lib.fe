@@ -1,8 +1,7 @@
 /// Constant-product AMM (x * y = k).
 ///
-/// Effects-based storage + context. Each handler declares exactly
-/// what it can access. Read-only handlers use (store), mutating
-/// handlers use (mut store, ctx).
+/// Typed reserves prevent accidentally passing reserve_a where reserve_b
+/// is expected. Effects declare exactly what each handler can access.
 
 use std::abi::sol
 
@@ -21,11 +20,13 @@ msg AmmMsg {
     GetK -> u256,
 }
 
-// Depends on: events (#[event] attribute + Log effect).
-// #[event]
-// struct Swap { sender: Address, amount_in: u256, amount_out: u256 }
-// #[event]
-// struct LiquidityAdded { sender: Address, amount_a: u256, amount_b: u256 }
+/// Typed reserve amounts. ReserveA and ReserveB are distinct types —
+/// passing one where the other is expected is a compile error.
+/// Depends on: WordRepr for newtypes (to use in StorageMap values).
+struct ReserveA { pub val: u256 }
+struct ReserveB { pub val: u256 }
+impl Copy for ReserveA {}
+impl Copy for ReserveB {}
 
 struct AmmStore {
     reserve_a: u256,
