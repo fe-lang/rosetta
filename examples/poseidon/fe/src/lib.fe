@@ -4,6 +4,10 @@
 /// In Fe it's readable code with typed field arithmetic.
 ///
 /// Depends on: sonatina#227 fix (Fp type at scale).
+///
+/// Future: parameterize by width T for different Poseidon configurations:
+///   pub fn hash<const T: usize>(inputs: [u256; T - 1]) -> u256
+/// Depends on: const arithmetic in array types ([Fp; T], [u256; T - 1]).
 
 pub use constants::{PRIME, C, S, M, P_MAT, N_ROUNDS_F, N_ROUNDS_P}
 pub use fp::Fp
