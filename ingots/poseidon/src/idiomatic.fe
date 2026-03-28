@@ -1,0 +1,88 @@
+/// Idiomatic Poseidon hash using Fp field type.
+///
+/// STATUS: does not compile on sonatina master (stack object overflow).
+/// This is what the code SHOULD look like once sonatina#227 is fixed.
+/// Compare with lib.fe (working but non-idiomatic).
+
+use super::fp::Fp
+use super::constants::{C, S, M, P_MAT, N_ROUNDS_F, N_ROUNDS_P}
+
+/// Poseidon hash of two BN254 field elements.
+pub fn hash(a: u256, b: u256) -> u256 {
+    let mut s0: Fp = Fp::zero()
+    let mut s1: Fp = Fp::new(a)
+    let mut s2: Fp = Fp::new(b)
+
+    // Initial round constants
+    s0 = s0 + Fp::new(C[0])
+    s1 = s1 + Fp::new(C[1])
+    s2 = s2 + Fp::new(C[2])
+
+    // First half full rounds
+    for r in 0..N_ROUNDS_F / 2 - 1 {
+        s0 = s0.pow5()
+        s1 = s1.pow5()
+        s2 = s2.pow5()
+        let rc: usize = (r + 1) * 3
+        s0 = s0 + Fp::new(C[rc])
+        s1 = s1 + Fp::new(C[rc + 1])
+        s2 = s2 + Fp::new(C[rc + 2])
+        mds(mut s0, mut s1, mut s2, M)
+    }
+
+    // Pre-sparse round
+    s0 = s0.pow5()
+    s1 = s1.pow5()
+    s2 = s2.pow5()
+    let rc: usize = (N_ROUNDS_F / 2) * 3
+    s0 = s0 + Fp::new(C[rc])
+    s1 = s1 + Fp::new(C[rc + 1])
+    s2 = s2 + Fp::new(C[rc + 2])
+    mds(mut s0, mut s1, mut s2, P_MAT)
+
+    // Partial rounds (sparse matrix)
+    for r in 0..N_ROUNDS_P {
+        s0 = s0.pow5()
+        s0 = s0 + Fp::new(C[(N_ROUNDS_F / 2 + 1) * 3 + r])
+        let off: usize = 5 * r
+        let t: Fp = Fp::new(S[off]) * s0 + Fp::new(S[off + 1]) * s1 + Fp::new(S[off + 2]) * s2
+        s1 = s1 + s0 * Fp::new(S[off + 3])
+        s2 = s2 + s0 * Fp::new(S[off + 4])
+        s0 = t
+    }
+
+    // Second half full rounds
+    for r in 0..N_ROUNDS_F / 2 - 1 {
+        s0 = s0.pow5()
+        s1 = s1.pow5()
+        s2 = s2.pow5()
+        let rc: usize = (N_ROUNDS_F / 2 + 1) * 3 + N_ROUNDS_P + r * 3
+        s0 = s0 + Fp::new(C[rc])
+        s1 = s1 + Fp::new(C[rc + 1])
+        s2 = s2 + Fp::new(C[rc + 2])
+        mds(mut s0, mut s1, mut s2, M)
+    }
+
+    // Final round
+    s0 = s0.pow5()
+    s1 = s1.pow5()
+    s2 = s2.pow5()
+    mds(mut s0, mut s1, mut s2, M)
+
+    s0.val
+}
+
+// TODO: Fe doesn't allow `mut` params on Copy types without `own`.
+// This would need either:
+//   fn mds(mut s0: own Fp, mut s1: own Fp, mut s2: own Fp, mat: [[u256; 3]; 3])
+// or tuple return:
+//   fn mds(s0: Fp, s1: Fp, s2: Fp, mat: ...) -> (Fp, Fp, Fp)
+// For now this is aspirational.
+fn mds(mut s0: own Fp, mut s1: own Fp, mut s2: own Fp, mat: [[u256; 3]; 3]) {
+    let t0: Fp = Fp::new(mat[0][0]) * s0 + Fp::new(mat[1][0]) * s1 + Fp::new(mat[2][0]) * s2
+    let t1: Fp = Fp::new(mat[0][1]) * s0 + Fp::new(mat[1][1]) * s1 + Fp::new(mat[2][1]) * s2
+    let t2: Fp = Fp::new(mat[0][2]) * s0 + Fp::new(mat[1][2]) * s1 + Fp::new(mat[2][2]) * s2
+    s0 = t0
+    s1 = t1
+    s2 = t2
+}
