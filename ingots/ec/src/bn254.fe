@@ -7,10 +7,29 @@ use std::evm::ops
 /// no native way to call precompiles with structured data. Fe version uses the
 /// same raw memory layout but with explicit, readable memory operations.
 
+use core::ops::Add
+
 /// A G1 point (x, y) on the BN254 curve.
 pub struct G1Point {
     pub x: u256,
     pub y: u256,
+}
+
+impl Copy for G1Point {}
+
+impl Add for G1Point {
+    fn add(own self, _ rhs: own G1Point) -> G1Point {
+        ec_add(self, rhs)
+    }
+}
+
+impl G1Point {
+    pub fn origin() -> G1Point { G1Point { x: 0, y: 0 } }
+
+    pub fn is_origin(self) -> bool { self.x == 0 && self.y == 0 }
+
+    /// Scalar multiply: self * s
+    pub fn scale(self, s: u256) -> G1Point { ec_mul(self, s) }
 }
 
 /// A G2 point (x, y) where x and y are elements of F_p^2.
@@ -21,6 +40,8 @@ pub struct G2Point {
     pub y_imag: u256,
     pub y_real: u256,
 }
+
+impl Copy for G2Point {}
 
 /// The generator of G1.
 pub fn p1() -> G1Point {

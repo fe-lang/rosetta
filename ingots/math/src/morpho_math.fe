@@ -1,42 +1,22 @@
-/// Fixed-point math from Morpho Blue ($6.7B TVL).
+/// Fixed-point math from Morpho Blue.
 /// Semantically equivalent to Morpho's MathLib.sol + SharesMathLib.sol.
 ///
-/// Morpho's Solidity is already clean (no assembly). The Fe version shows
-/// that even when Solidity doesn't need assembly, Fe remains cleaner —
-/// fewer parentheses, no library boilerplate, and the same checked arithmetic.
+/// Morpho's Solidity is already clean (no assembly), but Fe is still
+/// more concise: expression-oriented returns, no semicolons,
+/// no `library` boilerplate, and the same checked arithmetic by default.
 
-const WAD: u256 = 1000000000000000000  // 1e18
-const VIRTUAL_SHARES: u256 = 1000000   // 1e6
+const WAD: u256 = 1_000_000_000_000_000_000  // 1e18
+const VIRTUAL_SHARES: u256 = 1_000_000       // 1e6
 const VIRTUAL_ASSETS: u256 = 1
 
-// --- Core math ---
+pub fn mul_div_down(x: u256, y: u256, d: u256) -> u256 { x * y / d }
+pub fn mul_div_up(x: u256, y: u256, d: u256) -> u256 { (x * y + d - 1) / d }
 
-/// (x * y) / d, rounded down.
-pub fn mul_div_down(x: u256, y: u256, d: u256) -> u256 {
-    x * y / d
-}
+pub fn w_mul_down(x: u256, y: u256) -> u256 { mul_div_down(x, y, WAD) }
+pub fn w_div_down(x: u256, y: u256) -> u256 { mul_div_down(x, WAD, y) }
+pub fn w_div_up(x: u256, y: u256) -> u256 { mul_div_up(x, WAD, y) }
 
-/// (x * y) / d, rounded up.
-pub fn mul_div_up(x: u256, y: u256, d: u256) -> u256 {
-    (x * y + d - 1) / d
-}
-
-/// (x * y) / WAD, rounded down.
-pub fn w_mul_down(x: u256, y: u256) -> u256 {
-    mul_div_down(x, y, WAD)
-}
-
-/// (x * WAD) / y, rounded down.
-pub fn w_div_down(x: u256, y: u256) -> u256 {
-    mul_div_down(x, WAD, y)
-}
-
-/// (x * WAD) / y, rounded up.
-pub fn w_div_up(x: u256, y: u256) -> u256 {
-    mul_div_up(x, WAD, y)
-}
-
-/// 3-term Taylor expansion of e^(nx) - 1 for continuous compound interest.
+/// 3-term Taylor expansion of e^(nx) − 1 for continuous compound interest.
 pub fn w_taylor_compounded(x: u256, n: u256) -> u256 {
     let first = x * n
     let second = mul_div_down(first, first, 2 * WAD)
@@ -44,24 +24,19 @@ pub fn w_taylor_compounded(x: u256, n: u256) -> u256 {
     first + second + third
 }
 
-// --- Shares math (ERC-4626 virtual shares pattern) ---
-
-/// Assets → shares, rounded down.
+/// ERC-4626 virtual shares conversion (Morpho's inflation-resistant pattern).
 pub fn to_shares_down(assets: u256, total_assets: u256, total_shares: u256) -> u256 {
     mul_div_down(assets, total_shares + VIRTUAL_SHARES, total_assets + VIRTUAL_ASSETS)
 }
 
-/// Shares → assets, rounded down.
 pub fn to_assets_down(shares: u256, total_assets: u256, total_shares: u256) -> u256 {
     mul_div_down(shares, total_assets + VIRTUAL_ASSETS, total_shares + VIRTUAL_SHARES)
 }
 
-/// Assets → shares, rounded up.
 pub fn to_shares_up(assets: u256, total_assets: u256, total_shares: u256) -> u256 {
     mul_div_up(assets, total_shares + VIRTUAL_SHARES, total_assets + VIRTUAL_ASSETS)
 }
 
-/// Shares → assets, rounded up.
 pub fn to_assets_up(shares: u256, total_assets: u256, total_shares: u256) -> u256 {
     mul_div_up(shares, total_assets + VIRTUAL_ASSETS, total_shares + VIRTUAL_SHARES)
 }

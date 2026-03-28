@@ -1,0 +1,64 @@
+/// WAD-scaled fixed-point arithmetic type.
+///
+/// A Wad wraps a u256 that represents a value scaled by 1e18.
+/// The type system prevents accidentally mixing raw u256 with WAD values:
+///
+///   let price: Wad = Wad::from_raw(1_500_000_000_000_000_000)  // 1.5
+///   let amount: u256 = 100
+///   let result: Wad = price.mul_down(Wad::from_raw(amount))    // type-safe
+///   // price + amount  <-- won't compile: can't add Wad and u256
+///
+/// Compare Solidity where WAD math is just u256 with a comment saying "this is WAD":
+///   uint256 price = 1.5e18;
+///   uint256 result = price.mulWadDown(amount);  // which arg is WAD-scaled? both? neither?
+
+use core::ops::{Add, Sub, Mul}
+
+const WAD_SCALE: u256 = 1_000_000_000_000_000_000
+
+pub struct Wad {
+    pub raw: u256,
+}
+
+impl Copy for Wad {}
+
+impl Add for Wad {
+    fn add(own self, _ rhs: own Wad) -> Wad {
+        Wad { raw: self.raw + rhs.raw }
+    }
+}
+
+impl Sub for Wad {
+    fn sub(own self, _ rhs: own Wad) -> Wad {
+        Wad { raw: self.raw - rhs.raw }
+    }
+}
+
+impl Wad {
+    /// Wrap a raw u256 that is already WAD-scaled.
+    pub fn from_raw(raw: u256) -> Wad { Wad { raw } }
+
+    /// Scale an integer to WAD.
+    pub fn from_int(n: u256) -> Wad { Wad { raw: n * WAD_SCALE } }
+
+    /// One.
+    pub fn one() -> Wad { Wad { raw: WAD_SCALE } }
+
+    /// Zero.
+    pub fn zero() -> Wad { Wad { raw: 0 } }
+
+    /// Multiply two Wad values, round down.
+    pub fn mul_down(self, rhs: Wad) -> Wad {
+        Wad { raw: self.raw * rhs.raw / WAD_SCALE }
+    }
+
+    /// Divide self by rhs, round down.
+    pub fn div_down(self, rhs: Wad) -> Wad {
+        Wad { raw: self.raw * WAD_SCALE / rhs.raw }
+    }
+
+    /// Divide self by rhs, round up.
+    pub fn div_up(self, rhs: Wad) -> Wad {
+        Wad { raw: (self.raw * WAD_SCALE + rhs.raw - 1) / rhs.raw }
+    }
+}
