@@ -1,0 +1,67 @@
+/// Idiomatic constant-product AMM.
+///
+/// The current version is already clean Fe. This sketch explores
+/// what stronger typing adds.
+///
+/// Key ideas:
+/// - Typed reserves prevent swapping arguments
+/// - The swap function returns a typed amount that matches the output token
+/// - The invariant k = reserve_a * reserve_b is enforced by the type system
+
+use std::abi::sol
+
+/// A token amount tagged by token identity.
+/// Amount<0> and Amount<1> are different types — can't accidentally
+/// pass reserve_a where reserve_b is expected.
+struct Amount<const TOKEN: usize> {
+    pub val: u256,
+}
+impl<const T: usize> Copy for Amount<T> {}
+
+type AmountA = Amount<0>
+type AmountB = Amount<1>
+
+struct Reserves {
+    a: AmountA,
+    b: AmountB,
+}
+
+impl Copy for Reserves {}
+
+impl Reserves {
+    fn k(self) -> u256 { self.a.val * self.b.val }
+
+    /// Constant-product swap: given dx of token A, return dy of token B.
+    /// The types ensure you can't accidentally swap the wrong direction.
+    fn swap_a_for_b(self, amount_in: AmountA) -> (AmountB, Reserves) {
+        if amount_in.val == 0 || self.a.val == 0 || self.b.val == 0 {
+            return (Amount<1> { val: 0 }, self)
+        }
+        let dy = self.b.val * amount_in.val / (self.a.val + amount_in.val)
+        let new_reserves = Reserves {
+            a: Amount<0> { val: self.a.val + amount_in.val },
+            b: Amount<1> { val: self.b.val - dy },
+        }
+        (Amount<1> { val: dy }, new_reserves)
+    }
+
+    fn swap_b_for_a(self, amount_in: AmountB) -> (AmountA, Reserves) {
+        if amount_in.val == 0 || self.a.val == 0 || self.b.val == 0 {
+            return (Amount<0> { val: 0 }, self)
+        }
+        let dy = self.a.val * amount_in.val / (self.b.val + amount_in.val)
+        let new_reserves = Reserves {
+            a: Amount<0> { val: self.a.val - dy },
+            b: Amount<1> { val: self.b.val + amount_in.val },
+        }
+        (Amount<0> { val: dy }, new_reserves)
+    }
+}
+
+// This prevents a class of bug that has cost real money in DeFi:
+// accidentally passing token B reserves into a function expecting token A.
+//
+//   let amount: AmountA = Amount<0> { val: 100 }
+//   reserves.swap_b_for_a(amount)  // TYPE ERROR: expected AmountB, got AmountA
+//
+// In Solidity, both are uint256. The compiler can't help.

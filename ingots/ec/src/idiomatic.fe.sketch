@@ -1,0 +1,84 @@
+/// Idiomatic EC operations with const-generic pairing.
+///
+/// The current bn254.fe works but the pairing function is a wall of
+/// mstore calls. This sketch shows what a proper abstraction looks like.
+
+use core::ops::Add
+
+pub struct G1 {
+    pub x: u256,
+    pub y: u256,
+}
+
+impl Copy for G1 {}
+
+impl Add for G1 {
+    fn add(own self, _ rhs: own G1) -> G1 {
+        ec_add(self, rhs)
+    }
+}
+
+impl G1 {
+    pub fn origin() -> G1 { G1 { x: 0, y: 0 } }
+
+    pub fn scale(self, s: u256) -> G1 { ec_mul(self, s) }
+
+    pub fn negate(self) -> G1 {
+        let p: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+        if self.x == 0 && self.y == 0 { G1 { x: 0, y: 0 } }
+        else { G1 { x: self.x, y: p - (self.y % p) } }
+    }
+}
+
+pub struct G2 {
+    pub x_imag: u256,
+    pub x_real: u256,
+    pub y_imag: u256,
+    pub y_real: u256,
+}
+
+impl Copy for G2 {}
+
+/// A pairing input: a G1 and G2 point.
+pub struct PairingPair {
+    pub g1: G1,
+    pub g2: G2,
+}
+
+impl Copy for PairingPair {}
+
+/// Const-generic pairing check.
+/// e(pairs[0].g1, pairs[0].g2) * ... * e(pairs[N-1].g1, pairs[N-1].g2) == 1
+///
+/// This replaces hand-written mstore sequences for each pairing size.
+/// The compiler unrolls the loop and the precompile call is a single staticcall.
+pub fn pairing_check<const N: usize>(pairs: [PairingPair; N]) -> bool {
+    let ptr = std::evm::alloc(N * 192)
+    for i in 0..N {
+        let base = i * 192
+        std::evm::ops::mstore(ptr + base, pairs[i].g1.x)
+        std::evm::ops::mstore(ptr + base + 32, pairs[i].g1.y)
+        std::evm::ops::mstore(ptr + base + 64, pairs[i].g2.x_imag)
+        std::evm::ops::mstore(ptr + base + 96, pairs[i].g2.x_real)
+        std::evm::ops::mstore(ptr + base + 128, pairs[i].g2.y_imag)
+        std::evm::ops::mstore(ptr + base + 160, pairs[i].g2.y_real)
+    }
+    let ok = std::evm::ops::staticcall(std::evm::ops::gas(), 8, ptr, N * 192, ptr, 32)
+    if ok == 0 { std::evm::ops::revert(0, 0) }
+    std::evm::ops::mload(ptr) == 1
+}
+
+// Usage in Groth16:
+//   pairing_check([
+//       PairingPair { g1: proof.a.negate(), g2: proof.b },
+//       PairingPair { g1: vk.alpha1,        g2: vk.beta2 },
+//       PairingPair { g1: vk_x,             g2: vk.gamma2 },
+//       PairingPair { g1: proof.c,           g2: vk.delta2 },
+//   ])
+//
+// The compiler knows N=4 at compile time, unrolls the loop, and
+// generates the same mstore sequence as the hand-written version.
+// But the source is 7 lines instead of 40.
+
+fn ec_add(a: G1, b: G1) -> G1 { G1 { x: 0, y: 0 } } // placeholder
+fn ec_mul(p: G1, s: u256) -> G1 { G1 { x: 0, y: 0 } } // placeholder

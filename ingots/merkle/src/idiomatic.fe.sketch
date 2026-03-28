@@ -1,0 +1,74 @@
+/// Merkle proof verification, generic over the hash function.
+///
+/// In Solidity, switching from keccak to poseidon means rewriting the
+/// verifier. In Fe, it's a type parameter.
+///
+/// STATUS: sketch. Requires:
+/// - Hasher trait (not in std yet)
+/// - sonatina#227 fix for trait method dispatch at scale
+
+/// A hash function that maps two u256 values to one.
+trait PairHasher {
+    fn hash_pair(self, left: u256, right: u256) -> u256
+}
+
+/// Keccak256 pair hasher (EVM opcode 0x20).
+struct Keccak {}
+impl Copy for Keccak {}
+
+impl PairHasher for Keccak {
+    fn hash_pair(self, left: u256, right: u256) -> u256 {
+        let ptr = std::evm::alloc(64)
+        std::evm::ops::mstore(ptr, left)
+        std::evm::ops::mstore(ptr + 32, right)
+        std::evm::ops::keccak256(ptr, 64)
+    }
+}
+
+/// Poseidon pair hasher (from the poseidon ingot).
+// struct Poseidon {}
+// impl Copy for Poseidon {}
+// impl PairHasher for Poseidon {
+//     fn hash_pair(self, left: u256, right: u256) -> u256 {
+//         poseidon::hash(left, right)
+//     }
+// }
+
+/// Compute a Merkle root given a leaf and a proof.
+/// Generic over the hash function — works with keccak, poseidon, or anything.
+fn compute_root<H: PairHasher, const DEPTH: usize>(
+    hasher: H,
+    proof: [u256; DEPTH],
+    leaf: u256,
+) -> u256 {
+    let mut current = leaf
+    for i in 0..DEPTH {
+        let sibling = proof[i]
+        current = if current < sibling {
+            hasher.hash_pair(current, sibling)
+        } else {
+            hasher.hash_pair(sibling, current)
+        }
+    }
+    current
+}
+
+/// Verify a Merkle proof.
+fn verify<H: PairHasher, const DEPTH: usize>(
+    hasher: H,
+    proof: [u256; DEPTH],
+    root: u256,
+    leaf: u256,
+) -> bool {
+    compute_root(hasher, proof, leaf) == root
+}
+
+// Usage:
+//   let proof: [u256; 7] = [...]
+//   let valid = verify(Keccak {}, proof, root, leaf)
+//
+// Switching to Poseidon Merkle trees:
+//   let valid = verify(Poseidon {}, proof, root, leaf)
+//
+// The proof depth is checked at compile time — passing a depth-7
+// proof to a depth-32 verifier is a type error.
