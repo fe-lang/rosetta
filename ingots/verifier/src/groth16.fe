@@ -1,4 +1,4 @@
-use ec::bn254::{G1Point, G2Point, ec_add, ec_mul, negate}
+use ec::bn254::{G1Point, G2Point, negate}
 use std::evm::ops
 
 /// Groth16 proof verification on BN254.
@@ -40,8 +40,7 @@ pub fn verify(vk: VerifyingKey, proof: Proof, input: u256) -> bool {
     }
 
     // Compute vk_x = IC[0] + input * IC[1]
-    let mul_result = ec_mul(vk.ic[1], input)
-    let vk_x = ec_add(vk.ic[0], mul_result)
+    let vk_x = vk.ic[0] + vk.ic[1].scale(input)
 
     // Negate proof.A for the pairing check
     let neg_a = negate(proof.a)

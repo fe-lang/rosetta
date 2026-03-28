@@ -1,33 +1,16 @@
-use ec::bn254::{G1Point, ec_add, ec_mul}
-use std::evm::ops
+use ec::bn254::G1Point
 
 /// Multi-scalar multiplication: sum(scalars[i] * points[i]).
 ///
-/// In Solidity verifiers, MSM is the biggest source of code bloat.
-/// Fe version: one generic function with const generic N.
-
+/// In Solidity, MSM is the biggest source of code bloat — each term
+/// needs inline assembly for ecMul and ecAdd with manual memory layout.
+/// In Fe, it's a loop with + and .scale().
 pub fn msm<const N: usize>(points: [G1Point; N], scalars: [u256; N]) -> G1Point {
-    // Do all EC ops via memory — accumulate result at a fixed pointer
-    let acc_ptr = std::evm::alloc(64)
-    let tmp_ptr = std::evm::alloc(64)
-
-    // First term
-    let first = ec_mul(points[0], scalars[0])
-    ops::mstore(acc_ptr, first.x)
-    ops::mstore(acc_ptr + 32, first.y)
-
+    let mut acc = points[0].scale(scalars[0])
     let mut i: usize = 1
     while i < N {
-        let term = ec_mul(points[i], scalars[i])
-        // acc = acc + term
-        let acc = ec_add(
-            G1Point { x: ops::mload(acc_ptr), y: ops::mload(acc_ptr + 32) },
-            term,
-        )
-        ops::mstore(acc_ptr, acc.x)
-        ops::mstore(acc_ptr + 32, acc.y)
+        acc = acc + points[i].scale(scalars[i])
         i = i + 1
     }
-
-    G1Point { x: ops::mload(acc_ptr), y: ops::mload(acc_ptr + 32) }
+    acc
 }

@@ -1,4 +1,7 @@
 use ec::bn254::{G1Point, G2Point, ec_add, ec_mul, negate}
+// NOTE: G1Point now has Add trait and .scale() method.
+// Migrating ec_add -> + and ec_mul -> .scale() incrementally.
+// Full migration blocked by sonatina#227 at scale.
 use super::field
 use super::msm
 use std::evm::ops
