@@ -1,5 +1,8 @@
 use std::evm::ops
 
+/// BN254 scalar field order — single source of truth.
+pub const F_Q: u256 = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
+
 /// Field arithmetic parameterized by modulus.
 ///
 /// In Solidity, addmod/mulmod take the modulus as a runtime argument.

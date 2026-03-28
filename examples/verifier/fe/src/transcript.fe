@@ -1,3 +1,4 @@
+use super::field::F_Q
 /// SHA256-based Fiat-Shamir transcript.
 ///
 /// Generic write method accepts any type that implements Writable.
@@ -6,7 +7,6 @@
 use std::evm::ops
 use ec::bn254::G1Point
 
-const F_Q: u256 = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
 
 /// A type that can serialize itself into a memory buffer.
 pub trait Writable {

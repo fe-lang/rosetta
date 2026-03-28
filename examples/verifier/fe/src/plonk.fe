@@ -1,6 +1,7 @@
 use ec::bn254::{G1Point, G2Point, ec_add, ec_mul, negate, ec_pairing_2}
 use super::field
 use super::msm
+use super::field::F_Q
 use super::transcript::Transcript
 use std::evm::ops
 
@@ -14,7 +15,6 @@ const BETA_LABEL: u256 = 0x62657461000000000000000000000000000000000000000000000
 const ALPHA_LABEL: u256 = 0x616c706861000000000000000000000000000000000000000000000000000000  // "alpha"
 const ZETA_LABEL: u256 = 0x7a65746100000000000000000000000000000000000000000000000000000000   // "zeta"
 
-const F_Q: u256 = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
 
 pub struct PlonkVK {
     pub n: u256,
@@ -177,25 +177,19 @@ pub fn debug_challenges(
     t = t.write_g1(proof.lro[0])
     t = t.write_g1(proof.lro[1])
     t = t.write_g1(proof.lro[2])
-    let result = t.squeeze()
-    let gamma_raw = result.1
-    t = result.2
+    let (_, gamma_raw, t) = t.squeeze()
 
     // beta
     t = t.write_label(BETA_LABEL, 4)
     t = t.write_u256(gamma_raw)
-    let result = t.squeeze()
-    let beta_raw = result.1
-    t = result.2
+    let (_, beta_raw, t) = t.squeeze()
 
     // alpha
     t = t.write_label(ALPHA_LABEL, 5)
     t = t.write_u256(beta_raw)
     t = t.write_g1(proof.bsb22_commitments[0])
     t = t.write_g1(proof.z)
-    let result = t.squeeze()
-    let alpha_raw = result.1
-    t = result.2
+    let (_, alpha_raw, t) = t.squeeze()
 
     // zeta
     t = t.write_label(ZETA_LABEL, 4)
@@ -203,8 +197,7 @@ pub fn debug_challenges(
     t = t.write_g1(proof.h[0])
     t = t.write_g1(proof.h[1])
     t = t.write_g1(proof.h[2])
-    let result = t.squeeze()
-    let zeta_raw = result.1
+    let (_, zeta_raw, t) = t.squeeze()
 
     (gamma_raw, beta_raw, alpha_raw, zeta_raw)
 }
@@ -235,31 +228,21 @@ pub fn debug_pi(
     t = t.write_g1(proof.lro[0])
     t = t.write_g1(proof.lro[1])
     t = t.write_g1(proof.lro[2])
-    let result = t.squeeze()
-    let gamma = result.0
-    let gamma_raw = result.1
-    t = result.2
+    let (gamma, gamma_raw, t) = t.squeeze()
     t = t.write_label(BETA_LABEL, 4)
     t = t.write_u256(gamma_raw)
-    let result = t.squeeze()
-    let beta = result.0
-    let beta_raw = result.1
-    t = result.2
+    let (beta, beta_raw, t) = t.squeeze()
     t = t.write_label(ALPHA_LABEL, 5)
     t = t.write_u256(beta_raw)
     t = t.write_g1(proof.bsb22_commitments[0])
     t = t.write_g1(proof.z)
-    let result = t.squeeze()
-    let alpha = result.0
-    let alpha_raw = result.1
-    t = result.2
+    let (alpha, alpha_raw, t) = t.squeeze()
     t = t.write_label(ZETA_LABEL, 4)
     t = t.write_u256(alpha_raw)
     t = t.write_g1(proof.h[0])
     t = t.write_g1(proof.h[1])
     t = t.write_g1(proof.h[2])
-    let result = t.squeeze()
-    let zeta = result.0
+    let (zeta, zeta_raw, _) = t.squeeze()
 
     // Compute PI
     let zeta_power_n = pow_mod(zeta, vk.n)
@@ -325,29 +308,22 @@ pub fn verify(
     t = t.write_g1(proof.lro[0])
     t = t.write_g1(proof.lro[1])
     t = t.write_g1(proof.lro[2])
-    let result = t.squeeze()
-    let gamma = result.0
-    let gamma_raw = result.1  // raw hash for chaining
-    t = result.2
+
+
+
 
     // beta: SHA256("beta" || gamma_raw_hash)
     // Note: gnark chains the RAW 32-byte hash, not the reduced field element
     t = t.write_label(BETA_LABEL, 4) // "beta"
     t = t.write_u256(gamma_raw)
-    let result = t.squeeze()
-    let beta = result.0
-    let beta_raw = result.1
-    t = result.2
+    let (beta, beta_raw, t) = t.squeeze()
 
     // alpha: SHA256("alpha" || beta_raw_hash || bsb22_commitments || Z)
     t = t.write_label(ALPHA_LABEL, 5) // "alpha"
     t = t.write_u256(beta_raw)
     t = t.write_g1(proof.bsb22_commitments[0])
     t = t.write_g1(proof.z)
-    let result = t.squeeze()
-    let alpha = result.0
-    let alpha_raw = result.1
-    t = result.2
+    let (alpha, alpha_raw, t) = t.squeeze()
 
     // zeta: SHA256("zeta" || alpha_raw_hash || H0 || H1 || H2)
     t = t.write_label(ZETA_LABEL, 4) // "zeta"
@@ -355,9 +331,7 @@ pub fn verify(
     t = t.write_g1(proof.h[0])
     t = t.write_g1(proof.h[1])
     t = t.write_g1(proof.h[2])
-    let result = t.squeeze()
-    let zeta = result.0
-    let zeta_raw = result.1  // needed for chaining to U
+    let (zeta, zeta_raw, _) = t.squeeze()
 
     // --- 2. Compute zeta^n - 1 and L1(zeta) ---
     let zeta_power_n = pow_mod(zeta, vk.n)
@@ -491,8 +465,7 @@ pub fn verify(
     t2 = t2.write_u256(qc_val)
     // Write zu (data transcript)
     t2 = t2.write_u256(zu)
-    let result = t2.squeeze()
-    let gamma_kzg = result.0
+    let (gamma_kzg, _, _) = t2.squeeze()
     // gamma_kzg raw hash not needed (separate transcript)
 
     // Compute gamma_kzg^i for i = 0..6
@@ -539,8 +512,7 @@ pub fn verify(
     t3 = t3.write_g1(proof.z)
     t3 = t3.write_g1(proof.batched_h)
     t3 = t3.write_g1(proof.z_shifted_h)
-    let result = t3.squeeze()
-    let u_challenge = result.0
+    let (u_challenge, _, _) = t3.squeeze()
 
     // --- 10. KZG batch verification ---
     // Two opening proofs: (folded, zeta) and (z_shifted, omega*zeta)
@@ -614,8 +586,7 @@ fn test_transcript_gamma() {
     let mut t = Transcript::new()
     t = t.write_label(GAMMA_LABEL, 5)
     // Just hash "gamma" alone to verify the label encoding
-    let result = t.squeeze()
-    let gamma_only_raw = result.1
+    let (_, gamma_only_raw, t) = t.squeeze()
     // SHA256("gamma") = 0xbe9d587defa1f0c09ef49eb17e206983a5f8f8289e4281860bd0ee5a19592c67
     assert(gamma_only_raw == 0xbe9d587defa1f0c09ef49eb17e206983a5f8f8289e4281860bd0ee5a19592c67)
 }
@@ -624,9 +595,7 @@ fn test_transcript_gamma() {
 fn test_batch_invert() {
     let a: u256 = 7
     let b: u256 = 13
-    let result = batch_invert_2(a, b)
-    let a_inv = result.0
-    let b_inv = result.1
+    let (a_inv, b_inv) = batch_invert_2(a, b)
     assert(field::mul<F_Q>(a, a_inv) == 1)
     assert(field::mul<F_Q>(b, b_inv) == 1)
 }
@@ -835,8 +804,7 @@ fn test_verify_end_to_end() {
     t2 = t2.write_u256(s2)
     t2 = t2.write_u256(qc_val)
     t2 = t2.write_u256(zu)
-    let result = t2.squeeze()
-    let gamma_kzg = result.0
+    let (gamma_kzg, _, _) = t2.squeeze()
 
     // Fold
     let g0: u256 = 1
@@ -881,8 +849,7 @@ fn test_verify_end_to_end() {
     t3 = t3.write_g1(proof.z)
     t3 = t3.write_g1(proof.batched_h)
     t3 = t3.write_g1(proof.z_shifted_h)
-    let result = t3.squeeze()
-    let u_challenge = result.0
+    let (u_challenge, _, _) = t3.squeeze()
 
     let omega: u256 = 5709868443893258075976348696661355716898495876243883251619397131511003808859
     let shifted_zeta = field::mul<F_Q>(zeta, omega)
@@ -1047,8 +1014,7 @@ fn test_v6_gamma_challenge() {
     t = t.write_u256(0x0940fd1df4048a50b264164a972fc28739dc1365e3dcd3f0fb39a89e5dbf48e2)  // O.x
     t = t.write_u256(0x2903f07b564d791699df704aeb7fc3a0d196e392eaba115b629a562d7b54daa9)  // O.y
 
-    let result = t.squeeze()
-    let gamma_raw = result.1
+    let (_, gamma_raw, t) = t.squeeze()
 
     // Expected v6 gamma_raw from SP1 trace
     assert(gamma_raw == 0x86c4ac45a0be843cc24c65d9d559dd135a4ecad0f433372fa79f7979c9c6705c)
@@ -1063,8 +1029,7 @@ fn test_v6_all_challenges() {
     let mut t = Transcript::new()
     t = t.write_label(BETA_LABEL, 4)
     t = t.write_u256(gamma_raw)
-    let result = t.squeeze()
-    let beta_raw = result.1
+    let (_, beta_raw, t) = t.squeeze()
     assert(beta_raw == 0x4e56c438a8b25590e81c8bb610688afb1f226fba52e6edc7363b21baca7eacab)
 
     // Alpha = SHA256("alpha" || beta_raw || bsb22_commit || Z)
@@ -1078,8 +1043,7 @@ fn test_v6_all_challenges() {
     // Z commitment (v6 proof offset 0x220)
     t = t.write_u256(0x1b8cf196023c29725a2b372fcb7b02579480e58281ddba98dc4d054620dd1c50)
     t = t.write_u256(0x2cb66a9d6e2f0c5dc50e32510c756b0ad319202f34171e69820014d705c3bcea)
-    let result = t.squeeze()
-    let alpha_raw = result.1
+    let (_, alpha_raw, t) = t.squeeze()
     assert(alpha_raw == 0x8b4c0cc8930c7effedf6847ec5b115c7b78b3b9a74ff18c9fa4ead79e39e14dc)
 }
 
@@ -1100,8 +1064,7 @@ fn test_v6_zeta_challenge() {
     // H2
     t = t.write_u256(0x26dd3d2fab429286a3832f221505ac56cdbdc2dff07337a970b6d45aa542b395)
     t = t.write_u256(0x2fd4c0d4b57b853c080939eebac4298a3d1dbd19fa28fc2026efd88935bef01f)
-    let result = t.squeeze()
-    let zeta_raw = result.1
+    let (_, zeta_raw, t) = t.squeeze()
     assert(zeta_raw == 0x9cfa5df065c8d2170b994be2f13f26328184096125b806282cc4482082fb210d)
 }
 

@@ -11,7 +11,6 @@ use super::msm
 use std::evm::ops
 
 /// BN254 scalar field — for all polynomial evaluations and challenges.
-const F_Q: u256 = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
 
 /// Halo2/KZG verification key.
 ///
