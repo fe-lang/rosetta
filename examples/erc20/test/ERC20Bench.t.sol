@@ -30,13 +30,13 @@ contract ERC20BenchTest {
         cmd[1] = "build";
         cmd[2] = "--backend";
         cmd[3] = "sonatina";
-        cmd[4] = "../..";
+        cmd[4] = "fe";
         vm.ffi(cmd);
 
         string[] memory readCmd = new string[](3);
         readCmd[0] = "bash";
         readCmd[1] = "-c";
-        readCmd[2] = "printf '0x'; tr -d '\\n' < ../../out/Token.bin";
+        readCmd[2] = "printf '0x'; tr -d '\\n' < fe/out/Token.bin";
         bytes memory feInitcode = vm.ffi(readCmd);
         address _fe;
         // Encode constructor args: (uint256 initialSupply, address owner)
