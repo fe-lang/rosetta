@@ -15,7 +15,7 @@ Side-by-side Solidity and Fe implementations of common Ethereum contract pattern
 **DeFi**
 - **amm** — Constant-product AMM with effects-based storage access
 - **erc20** — ERC-20 token showing StorageMap, tuple keys, per-arm effect declarations
-- **math** — Uniswap V3 FullMath (512-bit mulDiv), Aave WadRayMath, Morpho MathLib
+- **math** — Uniswap V3 FullMath 512-bit mulDiv
 
 **Contract Patterns**
 - **diamond** — Compile-time facet composition. Three facets (token/governance/admin) as `recv` blocks on one contract — no delegatecall, no storage collision, compiler-generated dispatch.
@@ -24,12 +24,18 @@ Side-by-side Solidity and Fe implementations of common Ethereum contract pattern
 ## Running
 
 ```bash
-# Fe tests (27 tests across all modules)
+# Run Fe tests (27 tests across all modules)
 fe test
 
-# Foundry gas benchmarks (Fe vs Solidity, side by side)
+# Run Foundry gas benchmarks (Fe vs Solidity, side by side)
 cd bench
 forge test --match-test testGas -vv
+
+# Compare at different optimization levels
+FE_SONA_OPT_LEVEL=0 forge test --match-test testGas -vv  # unoptimized
+FE_SONA_OPT_LEVEL=2 forge test --match-test testGas -vv  # optimized
 ```
+
+The Foundry tests deploy both Fe and Solidity contracts, call them with identical inputs, and report gas for each. Tests prefixed `testGas_fe_` measure Fe, `testGas_sol_` measure Solidity. `test_equivalence_` verifies both produce identical outputs.
 
 Requires [Fe](https://github.com/ethereum/fe) and [Foundry](https://book.getfoundry.sh/).
