@@ -38,17 +38,9 @@ struct TokenStore {
     allowances: StorageMap<(Address, Address), u256>,
 }
 
-/// Internal transfer logic returning typed errors.
-/// Depends on: Result as msg return type (may need ABI encoding for Result).
-fn do_transfer(mut store: TokenStore, from: Address, to: Address, amount: u256) -> Result<TransferError, bool> {
-    let bal = store.balances.get(key: from)
-    if bal < amount {
-        return Result::Err(TransferError::InsufficientBalance)
-    }
-    store.balances.set(key: from, value: bal - amount)
-    store.balances.set(key: to, value: store.balances.get(key: to) + amount)
-    Result::Ok(true)
-}
+// Future: transfer handlers could return Result<TransferError, bool> instead of
+// bool, using Fe's monadic Result. Depends on: ABI encoding for Result return types,
+// and passing effects-backed storage to helper functions.
 
 pub contract Token uses (ctx: Ctx) {
     mut store: TokenStore
