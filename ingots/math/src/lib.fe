@@ -1,3 +1,1 @@
 pub use full_math::{self, *}
-pub use wad_ray_math::{self, *}
-pub use morpho_math::{self, *}

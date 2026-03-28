@@ -1,9 +1,5 @@
 use std::abi::sol
 use super::full_math
-use super::wad_ray_math
-use super::morpho_math
-
-// --- FullMath bench ---
 
 msg FullMathMsg {
     #[selector = sol("mulDiv(uint256,uint256,uint256)")]
@@ -20,74 +16,6 @@ pub contract FullMathBench {
         }
         MulDivRoundingUp { a, b, denominator } -> u256 {
             full_math::mul_div_rounding_up(a, b, denominator)
-        }
-    }
-}
-
-// --- WadRayMath bench ---
-
-msg WadRayMsg {
-    #[selector = sol("wadMul(uint256,uint256)")]
-    WadMul { a: u256, b: u256 } -> u256,
-    #[selector = sol("wadDiv(uint256,uint256)")]
-    WadDiv { a: u256, b: u256 } -> u256,
-    #[selector = sol("rayMul(uint256,uint256)")]
-    RayMul { a: u256, b: u256 } -> u256,
-    #[selector = sol("rayDiv(uint256,uint256)")]
-    RayDiv { a: u256, b: u256 } -> u256,
-    #[selector = sol("rayToWad(uint256)")]
-    RayToWad { a: u256 } -> u256,
-    #[selector = sol("wadToRay(uint256)")]
-    WadToRay { a: u256 } -> u256,
-}
-
-pub contract WadRayMathBench {
-    init() {}
-    recv WadRayMsg {
-        WadMul { a, b } -> u256 { wad_ray_math::wad_mul(a, b) }
-        WadDiv { a, b } -> u256 { wad_ray_math::wad_div(a, b) }
-        RayMul { a, b } -> u256 { wad_ray_math::ray_mul(a, b) }
-        RayDiv { a, b } -> u256 { wad_ray_math::ray_div(a, b) }
-        RayToWad { a } -> u256 { wad_ray_math::ray_to_wad(a) }
-        WadToRay { a } -> u256 { wad_ray_math::wad_to_ray(a) }
-    }
-}
-
-// --- Morpho MathLib bench ---
-
-msg MorphoMsg {
-    #[selector = sol("mulDivDown(uint256,uint256,uint256)")]
-    MulDivDown { x: u256, y: u256, d: u256 } -> u256,
-    #[selector = sol("mulDivUp(uint256,uint256,uint256)")]
-    MulDivUp { x: u256, y: u256, d: u256 } -> u256,
-    #[selector = sol("wMulDown(uint256,uint256)")]
-    WMulDown { x: u256, y: u256 } -> u256,
-    #[selector = sol("wDivDown(uint256,uint256)")]
-    WDivDown { x: u256, y: u256 } -> u256,
-    #[selector = sol("wDivUp(uint256,uint256)")]
-    WDivUp { x: u256, y: u256 } -> u256,
-    #[selector = sol("wTaylorCompounded(uint256,uint256)")]
-    WTaylorCompounded { x: u256, n: u256 } -> u256,
-    #[selector = sol("toSharesDown(uint256,uint256,uint256)")]
-    ToSharesDown { assets: u256, total_assets: u256, total_shares: u256 } -> u256,
-    #[selector = sol("toAssetsDown(uint256,uint256,uint256)")]
-    ToAssetsDown { shares: u256, total_assets: u256, total_shares: u256 } -> u256,
-}
-
-pub contract MorphoMathBench {
-    init() {}
-    recv MorphoMsg {
-        MulDivDown { x, y, d } -> u256 { morpho_math::mul_div_down(x, y, d) }
-        MulDivUp { x, y, d } -> u256 { morpho_math::mul_div_up(x, y, d) }
-        WMulDown { x, y } -> u256 { morpho_math::w_mul_down(x, y) }
-        WDivDown { x, y } -> u256 { morpho_math::w_div_down(x, y) }
-        WDivUp { x, y } -> u256 { morpho_math::w_div_up(x, y) }
-        WTaylorCompounded { x, n } -> u256 { morpho_math::w_taylor_compounded(x, n) }
-        ToSharesDown { assets, total_assets, total_shares } -> u256 {
-            morpho_math::to_shares_down(assets, total_assets, total_shares)
-        }
-        ToAssetsDown { shares, total_assets, total_shares } -> u256 {
-            morpho_math::to_assets_down(shares, total_assets, total_shares)
         }
     }
 }
