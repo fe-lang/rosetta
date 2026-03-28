@@ -1,45 +1,69 @@
+/// SHA256-based Fiat-Shamir transcript.
+///
+/// Generic write method accepts any type that implements Writable.
+/// Raw memory operations are encapsulated — callers never touch mstore.
+
 use std::evm::ops
+use ec::bn254::G1Point
 
-/// Fiat-Shamir transcript for non-interactive proof verification.
-///
-/// In Solidity verifiers, the transcript is managed by manually writing
-/// to scratch memory and calling the SHA256 precompile with hand-computed
-/// offsets. Every challenge derivation is a bespoke block of assembly.
-///
-/// Fe version: a Transcript with simple functions.
+const F_Q: u256 = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
 
-pub struct Transcript {
-    pub ptr: u256,
-    pub offset: u256,
+/// A type that can serialize itself into a memory buffer.
+pub trait Writable {
+    fn byte_size(self) -> u256
+    fn write_to(self, ptr: u256)
 }
 
-pub fn new_transcript(capacity: u256) -> Transcript {
-    Transcript {
-        ptr: std::evm::alloc(capacity),
-        offset: 0,
+impl Writable for u256 {
+    fn byte_size(self) -> u256 { 32 }
+    fn write_to(self, ptr: u256) { ops::mstore(ptr, self) }
+}
+
+impl Writable for G1Point {
+    fn byte_size(self) -> u256 { 64 }
+    fn write_to(self, ptr: u256) {
+        ops::mstore(ptr, self.x)
+        ops::mstore(ptr + 32, self.y)
     }
 }
 
-pub fn append(t: Transcript, value: u256) -> Transcript {
-    ops::mstore(t.ptr + t.offset, value)
-    Transcript { ptr: t.ptr, offset: t.offset + 32 }
+pub struct Transcript {
+    ptr: u256,
+    len: u256,
 }
 
-/// Squeeze a challenge using SHA256 precompile, reduced mod MODULUS.
-pub fn squeeze_sha256<const MODULUS: u256>(t: Transcript) -> (u256, Transcript) {
-    let out = std::evm::alloc(32)
-    let success = ops::staticcall(ops::gas(), 2, t.ptr, t.offset, out, 32)
-    if success == 0 { ops::revert(0, 0) }
-    let challenge = ops::mload(out) % MODULUS
-    // Reset with challenge as seed
-    let new_t = append(Transcript { ptr: t.ptr, offset: 0 }, challenge)
-    (challenge, new_t)
+impl Copy for Transcript {}
+
+impl Transcript {
+    pub fn new() -> Transcript {
+        Transcript { ptr: std::evm::alloc(4096), len: 0 }
+    }
+
+    pub fn write<T: Writable>(self, val: T) -> Transcript {
+        val.write_to(self.ptr + self.len)
+        Transcript { ptr: self.ptr, len: self.len + val.byte_size() }
+    }
+
+    pub fn write_label(self, label: u256, label_len: u256) -> Transcript {
+        ops::mstore(self.ptr + self.len, label)
+        Transcript { ptr: self.ptr, len: self.len + label_len }
+    }
+
+    pub fn squeeze(self) -> (u256, u256, Transcript) {
+        let out = std::evm::alloc(32)
+        let ok = ops::staticcall(ops::gas(), 2, self.ptr, self.len, out, 32)
+        if ok == 0 { ops::revert(0, 0) }
+        let hash = ops::mload(out)
+        (hash % F_Q, hash, Transcript { ptr: self.ptr, len: 0 })
+    }
 }
 
-/// Squeeze a challenge using keccak256, reduced mod MODULUS.
-pub fn squeeze_keccak<const MODULUS: u256>(t: Transcript) -> (u256, Transcript) {
-    let hash = ops::keccak256(t.ptr, t.offset)
-    let challenge = hash % MODULUS
-    let new_t = append(Transcript { ptr: t.ptr, offset: 0 }, challenge)
-    (challenge, new_t)
-}
+// NOTE on capabilities: ideally, ops::mstore would require
+// `uses (mem: mut RawMem)` — making raw memory access an explicit
+// capability. The Transcript's internal use of mstore would be
+// an implementation detail behind a safe API. Callers of
+// Transcript::write wouldn't need the RawMem capability themselves.
+//
+// This is how Fe's effect system SHOULD work for unsafe operations:
+// the capability is required by the low-level code, but
+// encapsulated by higher-level abstractions.

@@ -1,0 +1,158 @@
+/// Compile-time facet composition — Fe's alternative to the Diamond pattern.
+///
+/// In Solidity, EIP-2535 Diamond uses delegatecall to route selectors to
+/// separate "facet" contracts at runtime. This requires: a selector→address
+/// mapping, storage namespace coordination, runtime gas overhead, and zero
+/// type safety at the boundary.
+///
+/// In Fe, multiple `recv` blocks on one contract compose facets at compile
+/// time. The compiler generates a single dispatch table. Storage is
+/// per-field with deterministic layout. Each handler declares exactly
+/// what it can access via effects.
+///
+/// This contract has three "facets": token, governance, and admin.
+/// In Solidity Diamond, these would be 3 separate contracts + a proxy.
+/// In Fe, it's one contract with three msg types.
+
+use std::abi::sol
+
+// --- Token facet ---
+msg TokenFacet {
+    #[selector = sol("balanceOf(address)")]
+    BalanceOf { account: Address } -> u256,
+    #[selector = sol("transfer(address,uint256)")]
+    Transfer { to: Address, amount: u256 } -> bool,
+}
+
+// --- Governance facet ---
+msg GovFacet {
+    #[selector = sol("propose(uint256)")]
+    Propose { action_id: u256 } -> u256,
+    #[selector = sol("vote(uint256,bool)")]
+    Vote { proposal_id: u256, support: bool },
+    #[selector = sol("getVotes(uint256)")]
+    GetVotes { proposal_id: u256 } -> u256,
+}
+
+// --- Admin facet ---
+msg AdminFacet {
+    #[selector = sol("pause()")]
+    Pause,
+    #[selector = sol("unpause()")]
+    Unpause,
+    #[selector = sol("isPaused()")]
+    IsPaused -> bool,
+}
+
+// Separate storage per facet — no namespace collision possible.
+// In Solidity Diamond, you'd need keccak("diamond.token") style slots.
+// In Fe, each field has a deterministic compiler-assigned slot.
+struct TokenStore {
+    balances: StorageMap<Address, u256>,
+}
+
+struct GovStore {
+    proposals: StorageMap<u256, u256>,  // proposal_id → yes_votes
+    next_proposal: u256,
+}
+
+struct AdminStore {
+    owner: Address,
+    paused: bool,
+}
+
+pub contract MultiApp uses (ctx: Ctx) {
+    mut token_store: TokenStore
+    mut gov_store: GovStore
+    mut admin_store: AdminStore
+
+    init(owner: Address) uses (mut admin_store) {
+        admin_store.owner = owner
+        admin_store.paused = false
+    }
+
+    // Token facet: can access token_store, nothing else.
+    recv TokenFacet {
+        BalanceOf { account } -> u256 uses (token_store) {
+            token_store.balances.get(key: account)
+        }
+
+        Transfer { to, amount } -> bool uses (mut token_store, ctx, admin_store) {
+            // Can read admin_store to check pause, but can't write it.
+            if admin_store.paused { return false }
+            let from = ctx.caller()
+            let bal = token_store.balances.get(key: from)
+            if bal < amount { return false }
+            token_store.balances.set(key: from, value: bal - amount)
+            token_store.balances.set(key: to, value: token_store.balances.get(key: to) + amount)
+            true
+        }
+    }
+
+    // Governance facet: can access gov_store, nothing else.
+    recv GovFacet {
+        Propose { action_id } -> u256 uses (mut gov_store) {
+            let id = gov_store.next_proposal
+            gov_store.next_proposal = id + 1
+            gov_store.proposals.set(key: id, value: 0)
+            id
+        }
+
+        Vote { proposal_id, support } uses (mut gov_store) {
+            if support {
+                let votes = gov_store.proposals.get(key: proposal_id)
+                gov_store.proposals.set(key: proposal_id, value: votes + 1)
+            }
+        }
+
+        GetVotes { proposal_id } -> u256 uses (gov_store) {
+            gov_store.proposals.get(key: proposal_id)
+        }
+    }
+
+    // Admin facet: can access admin_store, restricted to owner.
+    recv AdminFacet {
+        Pause uses (mut admin_store, ctx) {
+            assert(ctx.caller() == admin_store.owner)
+            admin_store.paused = true
+        }
+
+        Unpause uses (mut admin_store, ctx) {
+            assert(ctx.caller() == admin_store.owner)
+            admin_store.paused = false
+        }
+
+        IsPaused -> bool uses (admin_store) { admin_store.paused }
+    }
+}
+
+// The compiler generates ONE dispatch table across all three facets.
+// No delegatecall. No selector mapping. No storage collision risk.
+// Each recv block declares exactly what storage it touches.
+//
+// The Transfer handler reads admin_store (to check pause) but
+// CANNOT write to it — the effect is (admin_store) not (mut admin_store).
+// In Solidity Diamond, nothing prevents a token facet from accidentally
+// writing to the governance storage namespace.
+
+#[test]
+fn test_multi_facet() uses (evm: mut Evm) {
+    let owner = Address { inner: 0xAD }
+
+    let app = evm.create2<MultiApp>(value: 0, args: (owner,), salt: 0)
+    assert(app.inner != 0)
+
+    // Check not paused
+    let paused: bool = evm.call(addr: app, gas: 100000, value: 0, message: AdminFacet::IsPaused {})
+    assert(paused == false)
+
+    // Create a proposal via governance facet
+    let prop_id: u256 = evm.call(addr: app, gas: 100000, value: 0, message: GovFacet::Propose { action_id: 42 })
+    assert(prop_id == 0)
+
+    // Vote on it
+    evm.call(addr: app, gas: 100000, value: 0, message: GovFacet::Vote { proposal_id: 0, support: true })
+
+    let votes: u256 = evm.call(addr: app, gas: 100000, value: 0, message: GovFacet::GetVotes { proposal_id: 0 })
+    assert(votes == 1)
+}

@@ -2,7 +2,8 @@ pub use field::{self, *}
 pub use transcript::{self, *}
 pub use msm::{self, *}
 pub use plonk::{self, *}
-pub use halo2::{self, *}
-pub use circuit::{self, *}
+// halo2 and circuit modules are incomplete — excluded for now
+// pub use halo2::{self, *}
+// pub use circuit::{self, *}
 pub use groth16_bench::{self, *}
 pub use plonk_bench::{self, *}

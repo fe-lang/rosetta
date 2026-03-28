@@ -1,0 +1,101 @@
+/// Escrow with typed cross-contract calls.
+///
+/// Two contracts sharing a msg type: Escrow holds funds, Arbiter releases them.
+/// The Arbiter contract's capabilities are bounded at the type level —
+/// it can ONLY make calls (uses Call), not access storage or emit events.
+///
+/// What Fe does that Solidity can't:
+/// - The Arbiter literally cannot touch storage. Not by convention, by types.
+/// - Both contracts share the same EscrowMsg type. The compiler checks
+///   the call signature at both ends.
+/// - Effect declarations make the trust model visible:
+///   Escrow uses (ctx, mut store) — can read caller, can mutate state.
+///   Arbiter uses (call) — can only make outbound calls.
+
+use std::abi::sol
+
+msg EscrowMsg {
+    #[selector = sol("deposit()")]
+    Deposit,
+    #[selector = sol("release()")]
+    Release -> u256,
+    #[selector = sol("getBalance()")]
+    GetBalance -> u256,
+    #[selector = sol("getState()")]
+    GetState -> u256,
+}
+
+const STATE_EMPTY: u256 = 0
+const STATE_FUNDED: u256 = 1
+const STATE_RELEASED: u256 = 2
+
+struct EscrowStore {
+    depositor: Address,
+    beneficiary: Address,
+    arbiter: Address,
+    balance: u256,
+    state: u256,
+}
+
+pub contract Escrow uses (ctx: Ctx) {
+    mut store: EscrowStore
+
+    init(beneficiary: Address, arbiter: Address) uses (mut store, ctx) {
+        store.depositor = ctx.caller()
+        store.beneficiary = beneficiary
+        store.arbiter = arbiter
+        store.state = STATE_EMPTY
+        store.balance = 0
+    }
+
+    recv EscrowMsg {
+        Deposit uses (mut store, ctx) {
+            assert(store.state == STATE_EMPTY)
+            store.balance = ctx.value()
+            store.state = STATE_FUNDED
+        }
+
+        Release -> u256 uses (mut store, ctx) {
+            assert(ctx.caller() == store.arbiter)
+            assert(store.state == STATE_FUNDED)
+            store.state = STATE_RELEASED
+            let amount = store.balance
+            store.balance = 0
+            amount
+        }
+
+        // Read-only: no mut, no ctx needed.
+        GetBalance -> u256 uses (store) { store.balance }
+        GetState -> u256 uses (store) { store.state }
+    }
+}
+
+/// An arbiter proxy — a contract whose ONLY capability is making calls.
+/// It cannot access storage, emit events, or deploy contracts.
+/// The effect declaration (uses Call) IS the security model.
+msg ArbiterMsg {
+    #[selector = sol("doRelease(address)")]
+    DoRelease { escrow_addr: Address } -> u256,
+}
+
+pub contract Arbiter uses (call: mut Call) {
+    init() {}
+
+    recv ArbiterMsg {
+        DoRelease { escrow_addr } -> u256 uses (mut call) {
+            call.call(addr: escrow_addr, gas: 100000, value: 0, message: EscrowMsg::Release {})
+        }
+    }
+}
+
+#[test]
+fn test_escrow_lifecycle() uses (evm: mut Evm) {
+    let beneficiary = Address { inner: 0xBEEF }
+    let arbiter_addr = Address { inner: 0xA1B1 }
+
+    let escrow = evm.create2<Escrow>(value: 0, args: (beneficiary, arbiter_addr), salt: 0)
+    assert(escrow.inner != 0)
+
+    let state: u256 = evm.call(addr: escrow, gas: 100000, value: 0, message: EscrowMsg::GetState {})
+    assert(state == STATE_EMPTY)
+}
