@@ -1,7 +1,4 @@
-use ec::bn254::{G1Point, G2Point, ec_add, ec_mul, negate}
-// NOTE: G1Point now has Add trait and .scale() method.
-// Migrating ec_add -> + and ec_mul -> .scale() incrementally.
-// Full migration blocked by sonatina#227 at scale.
+use ec::bn254::{G1Point, G2Point, ec_add, ec_mul, negate, ec_pairing_2}
 use super::field
 use super::msm
 use std::evm::ops
@@ -611,25 +608,7 @@ pub fn verify(
     let neg_quotients = negate(folded_quotients)
 
     // Pairing check: e(lhs, G2) * e(-folded_quotients, [alpha]G2) == 1
-    let ptr = std::evm::alloc(384)
-    ops::mstore(ptr, lhs.x)
-    ops::mstore(ptr + 32, lhs.y)
-    ops::mstore(ptr + 64, vk.g2_srs[0].x_imag)
-    ops::mstore(ptr + 96, vk.g2_srs[0].x_real)
-    ops::mstore(ptr + 128, vk.g2_srs[0].y_imag)
-    ops::mstore(ptr + 160, vk.g2_srs[0].y_real)
-
-    ops::mstore(ptr + 192, neg_quotients.x)
-    ops::mstore(ptr + 224, neg_quotients.y)
-    ops::mstore(ptr + 256, vk.g2_srs[1].x_imag)
-    ops::mstore(ptr + 288, vk.g2_srs[1].x_real)
-    ops::mstore(ptr + 320, vk.g2_srs[1].y_imag)
-    ops::mstore(ptr + 352, vk.g2_srs[1].y_real)
-
-    let success = ops::staticcall(ops::gas(), 8, ptr, 384, ptr, 32)
-    if success == 0 { ops::revert(0, 0) }
-
-    ops::mload(ptr) == 1
+    ec_pairing_2(lhs, vk.g2_srs[0], neg_quotients, vk.g2_srs[1])
 }
 
 // -----------------------------------------------------------------------
