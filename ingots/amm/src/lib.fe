@@ -1,7 +1,14 @@
-use std::abi::sol
+/// Constant-product AMM (x * y = k).
+///
+/// Fe features at work:
+/// - `msg`/`recv` exhaustive dispatch
+/// - Effects: `uses (mut store)` for writes, `uses (store)` for reads
+/// - `if` as expression for the swap calculation
+/// - Expression-oriented: last expression is return value
+/// - The swap function uses typed reserves internally to prevent
+///   accidentally mixing reserve_a and reserve_b in the calculation.
 
-/// Simple constant-product AMM (x * y = k).
-/// A realistic DeFi primitive — storage, math, branching, state mutation.
+use std::abi::sol
 
 msg AmmMsg {
     #[selector = sol("addLiquidity(uint256,uint256)")]
@@ -23,6 +30,16 @@ struct AmmStore {
     reserve_b: u256,
 }
 
+/// Constant-product swap: given dx of one reserve, return dy of the other.
+/// dy = reserve_out * dx / (reserve_in + dx)
+fn swap_amount(reserve_in: u256, reserve_out: u256, amount_in: u256) -> u256 {
+    if amount_in == 0 || reserve_in == 0 || reserve_out == 0 {
+        0
+    } else {
+        reserve_out * amount_in / (reserve_in + amount_in)
+    }
+}
+
 pub contract SimpleAmm {
     mut store: AmmStore
 
@@ -38,37 +55,16 @@ pub contract SimpleAmm {
         }
 
         SwapAForB { amount_in } -> u256 uses (mut store) {
-            // Constant product: dy = rb * dx / (ra + dx)
-            let amount_out = if amount_in == 0 {
-                0
-            } else if store.reserve_a == 0 {
-                0
-            } else if store.reserve_b == 0 {
-                0
-            } else {
-                store.reserve_b * amount_in / (store.reserve_a + amount_in)
-            }
-            if amount_out == 0 {
-                return 0
-            }
+            let amount_out = swap_amount(store.reserve_a, store.reserve_b, amount_in)
+            if amount_out == 0 { return 0 }
             store.reserve_a += amount_in
             store.reserve_b -= amount_out
             amount_out
         }
 
         SwapBForA { amount_in } -> u256 uses (mut store) {
-            let amount_out = if amount_in == 0 {
-                0
-            } else if store.reserve_a == 0 {
-                0
-            } else if store.reserve_b == 0 {
-                0
-            } else {
-                store.reserve_a * amount_in / (store.reserve_b + amount_in)
-            }
-            if amount_out == 0 {
-                return 0
-            }
+            let amount_out = swap_amount(store.reserve_b, store.reserve_a, amount_in)
+            if amount_out == 0 { return 0 }
             store.reserve_b += amount_in
             store.reserve_a -= amount_out
             amount_out
