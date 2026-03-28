@@ -37,11 +37,12 @@ struct TokenStore {
     balances: StorageMap<Address, u256>,
 }
 
+/// Depends on: impl WordRepr for Address (on std-fixed-point-and-crypto branch).
 struct GovStore {
     proposal_count: u256,
     votes_for: StorageMap<u256, u256>,
     votes_against: StorageMap<u256, u256>,
-    delegates: StorageMap<u256, u256>,
+    delegates: StorageMap<Address, Address>,
 }
 
 pub contract MultiApp uses (ctx: Ctx) {
@@ -90,7 +91,7 @@ pub contract MultiApp uses (ctx: Ctx) {
         }
 
         Delegate { to } uses (mut gov_store, ctx) {
-            gov_store.delegates.set(key: ctx.caller().inner, value: to.inner)
+            gov_store.delegates.set(key: ctx.caller(), value: to)
         }
 
         GetVotes { proposal_id } -> u256 uses (gov_store) {
@@ -98,7 +99,7 @@ pub contract MultiApp uses (ctx: Ctx) {
         }
 
         GetDelegate { account } -> Address uses (gov_store) {
-            Address { inner: gov_store.delegates.get(key: account.inner) }
+            gov_store.delegates.get(key: account)
         }
 
         ProposalCount -> u256 uses (gov_store) { gov_store.proposal_count }

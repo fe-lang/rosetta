@@ -1,21 +1,20 @@
 use std::evm::ops
 
-/// Verify a Merkle proof.
-/// Semantically equivalent to Solady's MerkleProofLib.verify().
+/// Verify a Merkle proof with const-generic depth.
 ///
-/// Solady's version is 100% inline assembly: manual scratch-space management,
-/// branchless pair sorting via `shl(5, gt(...))`, raw keccak256 calls.
+/// The depth is a compile-time parameter — passing a depth-7 proof to a
+/// depth-32 verifier is a type error. No separate `proof_len` needed.
 ///
-/// Fe version: same algorithm, plain code. The compiler handles memory layout.
-pub fn verify(proof: [u256; 32], proof_len: usize, root: u256, leaf: u256) -> bool {
-    compute_root(proof, proof_len, leaf) == root
+/// Depends on: const generic N in array + range position (for i in 0..N).
+pub fn verify<const DEPTH: usize>(proof: [u256; DEPTH], root: u256, leaf: u256) -> bool {
+    compute_root(proof, leaf) == root
 }
 
 /// Compute a Merkle root from a leaf and proof.
-pub fn compute_root(proof: [u256; 32], proof_len: usize, leaf: u256) -> u256 {
+pub fn compute_root<const DEPTH: usize>(proof: [u256; DEPTH], leaf: u256) -> u256 {
     let scratch = std::evm::alloc(64)
     let mut hash = leaf
-    for i in 0..proof_len {
+    for i in 0..DEPTH {
         let sibling = proof[i]
         if hash < sibling {
             ops::mstore(scratch, hash)
@@ -30,7 +29,6 @@ pub fn compute_root(proof: [u256; 32], proof_len: usize, leaf: u256) -> u256 {
 }
 
 /// Compute root reading proof directly from calldata (zero-copy).
-/// This matches Solady's approach of reading siblings via calldataload.
 pub fn compute_root_calldata(proof_offset: u256, proof_len: u256, leaf: u256) -> u256 {
     let mut hash = leaf
     let mut offset = proof_offset
