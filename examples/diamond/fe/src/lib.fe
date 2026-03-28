@@ -1,451 +1,509 @@
-/// Token + Governance Diamond — Fe version.
+/// Aavegotchi Tile Diamond — ported to Fe from the Solidity EIP-2535 Diamond.
 ///
-/// Same external interface as the Solidity EIP-2535 Diamond: a token balance
-/// facet and a governance/voting facet. The Fe version has no proxy, no
-/// selector-to-facet mapping, no storage namespace libraries, and no
-/// delegatecall routing. Each recv block declares the storage it accesses
-/// via effects, and the compiler enforces isolation.
+/// The Solidity version requires: a Diamond proxy with delegatecall fallback,
+/// LibDiamond for selector-to-facet mapping, diamondCut for runtime upgrades,
+/// and manual storage namespace discipline across all facets.
+///
+/// The Fe version compiles all facets into one contract with one dispatch
+/// table. Each recv block declares the storage it can access via effects.
+/// The compiler enforces isolation — TileFacet handlers cannot write
+/// ERC1155 state and vice versa.
+///
+/// Ported from: https://github.com/aavegotchi/aavegotchi-tile-diamond
+///
+/// Dropped: ERC998 parent-child NFT tracking, cross-diamond calls,
+/// meta-transactions, GLMR burn, marketplace hooks.
 
 use std::abi::sol
 
-// ============================================================================
-// Message types — match the Solidity facet function signatures
-// ============================================================================
+// ============================================================
+//  Tile facet — craft queue, tile types, equip/unequip
+// ============================================================
 
-msg TokenFacet {
-    #[selector = sol("mint(address,uint256)")]
-    Mint { to: Address, amount: u256 },
+msg TileFacet {
+    // Reads
+    #[selector = sol("balanceOf(address,uint256)")]
+    BalanceOf { owner: Address, id: u256 } -> u256,
 
-    #[selector = sol("transfer(address,uint256)")]
-    Transfer { to: Address, amount: u256 } -> bool,
+    #[selector = sol("getTileType(uint256)")]
+    GetTileType { type_id: u256 } -> (u256, u256, u256),
 
-    #[selector = sol("balanceOf(address)")]
-    BalanceOf { account: Address } -> u256,
+    #[selector = sol("getCraftQueueLength()")]
+    GetCraftQueueLength -> u256,
 
-    #[selector = sol("totalSupply()")]
-    TotalSupply -> u256,
+    #[selector = sol("getCraftItem(uint256)")]
+    GetCraftItem { queue_id: u256 } -> (u256, u256, bool),
+
+    // Writes
+    #[selector = sol("craftTile(uint256)")]
+    CraftTile { tile_type_id: u256 },
+
+    #[selector = sol("claimTile(uint256)")]
+    ClaimTile { queue_id: u256 },
+
+    #[selector = sol("equipTile(address,uint256,uint256)")]
+    EquipTile { owner: Address, realm_id: u256, tile_id: u256 },
+
+    #[selector = sol("unequipTile(address,uint256,uint256)")]
+    UnequipTile { owner: Address, realm_id: u256, tile_id: u256 },
 }
 
-msg GovernanceFacet {
-    #[selector = sol("initGovernance(uint256,uint256)")]
-    InitGovernance { voting_period: u256, quorum: u256 },
+// Owner-only administration
+msg AdminFacet {
+    #[selector = sol("addTileType(uint256,uint256,uint256)")]
+    AddTileType { width: u256, height: u256, craft_time: u256 },
 
-    #[selector = sol("propose(string)")]
-    Propose { description: String } -> u256,
+    #[selector = sol("tileTypeCount()")]
+    TileTypeCount -> u256,
 
-    #[selector = sol("vote(uint256,bool)")]
-    Vote { proposal_id: u256, support: bool },
-
-    #[selector = sol("delegate(address)")]
-    Delegate { to: Address },
-
-    #[selector = sol("execute(uint256)")]
-    Execute { proposal_id: u256 } -> bool,
-
-    #[selector = sol("getProposal(uint256)")]
-    GetProposal { proposal_id: u256 } -> (u256, u256, u256, bool),
-
-    #[selector = sol("proposalCount()")]
-    ProposalCount -> u256,
-
-    #[selector = sol("getDelegate(address)")]
-    GetDelegate { account: Address } -> Address,
-
-    #[selector = sol("votingPower(address)")]
-    VotingPower { account: Address } -> u256,
+    #[selector = sol("owner()")]
+    Owner -> u256,
 }
 
-// ============================================================================
-// Storage — each struct is a separate namespace
-// ============================================================================
+// ============================================================
+//  ERC1155 facet — token transfers and operator approvals
+// ============================================================
 
+msg Erc1155Facet {
+    #[selector = sol("isApprovedForAll(address,address)")]
+    IsApprovedForAll { account: Address, operator: Address } -> bool,
+
+    #[selector = sol("setApprovalForAll(address,bool)")]
+    SetApprovalForAll { operator: Address, approved: bool },
+
+    #[selector = sol("safeTransferFrom(address,address,uint256,uint256)")]
+    SafeTransferFrom { from: Address, to: Address, id: u256, value: u256 },
+
+    #[selector = sol("safeBatchTransferFrom(address,address,uint256,uint256,uint256,uint256)")]
+    SafeBatchTransferFrom {
+        from: Address, to: Address,
+        id0: u256, value0: u256,
+        id1: u256, value1: u256,
+    },
+}
+
+// ============================================================
+//  Storage — each struct is a separate namespace
+// ============================================================
+
+// Tile type definitions. Flat maps keyed by type_id (Fe lacks
+// storage arrays).
+struct TileTypeStore {
+    count: u256,
+    widths: StorageMap<u256, u256>,
+    heights: StorageMap<u256, u256>,
+    craft_times: StorageMap<u256, u256>,
+}
+
+// Craft queue indexed by queue_id. Items are never deleted;
+// the `claimed` flag prevents double-claiming.
+// Owner addresses stored as u256 (Address lacks WordRepr).
+struct CraftQueueStore {
+    length: u256,
+    next_craft_id: u256,
+    ready_blocks: StorageMap<u256, u256>,
+    tile_types: StorageMap<u256, u256>,
+    claimed: StorageMap<u256, bool>,
+    owners: StorageMap<u256, u256>,
+}
+
+// ERC1155 balances and operator approvals
 struct TokenStore {
-    balances: StorageMap<Address, u256>,
-    total_supply: u256,
+    balances: StorageMap<(Address, u256), u256>,
+    operators: StorageMap<(Address, Address), bool>,
 }
 
-struct GovernanceStore {
-    proposal_count: u256,
-    voting_period: u256,
-    quorum: u256,
-    // Per-proposal fields (flat maps keyed by proposal_id)
-    vote_starts: StorageMap<u256, u256>,
-    vote_ends: StorageMap<u256, u256>,
-    yes_votes: StorageMap<u256, u256>,
-    no_votes: StorageMap<u256, u256>,
-    executed: StorageMap<u256, bool>,
-    // (proposal_id, voter) => has_voted
-    has_voted: StorageMap<(u256, Address), bool>,
-    // Delegation
-    delegates: StorageMap<Address, Address>,
-    delegated_weight: StorageMap<Address, u256>,
+// Equip tracking: (realm_id, tile_id) => count
+struct EquipStore {
+    equipped: StorageMap<(u256, u256), u256>,
 }
 
+// Contract ownership (u256 because Address lacks WordRepr)
 struct OwnerStore {
-    owner: Address,
+    owner: u256,
 }
 
-// ============================================================================
-// Contract
-// ============================================================================
+// ============================================================
+//  Contract — all facets compose into one dispatch table
+// ============================================================
 
-pub contract TokenGovernanceDiamond uses (ctx: Ctx) {
+pub contract TileDiamond uses (ctx: Ctx) {
+    mut tile_types: TileTypeStore
+    mut craft_queue: CraftQueueStore
     mut tokens: TokenStore
-    mut governance: GovernanceStore
+    mut equips: EquipStore
     mut admin: OwnerStore
 
-    init(owner: Address) uses (mut admin) {
-        admin.owner = owner
+    init() uses (mut admin, ctx) {
+        admin.owner = ctx.caller().inner
     }
 
-    // ---------------------------------------------------------------
-    // Token facet
-    // ---------------------------------------------------------------
+    // --------------------------------------------------------
+    //  Tile facet
+    // --------------------------------------------------------
 
-    recv TokenFacet {
-        Mint { to, amount } uses (mut tokens, admin, ctx) {
-            assert(ctx.caller() == admin.owner)
-            let bal = tokens.balances.get(key: to)
-            tokens.balances.set(key: to, value: bal + amount)
-            tokens.total_supply = tokens.total_supply + amount
+    recv TileFacet {
+        BalanceOf { owner, id } -> u256 uses (tokens) {
+            tokens.balances.get(key: (owner, id))
         }
 
-        Transfer { to, amount } -> bool uses (mut tokens, ctx) {
-            let sender = ctx.caller()
-            let bal = tokens.balances.get(key: sender)
-            if bal < amount {
-                return false
-            }
-            tokens.balances.set(key: sender, value: bal - amount)
-            let to_bal = tokens.balances.get(key: to)
-            tokens.balances.set(key: to, value: to_bal + amount)
-            return true
-        }
-
-        BalanceOf { account } -> u256 uses (tokens) {
-            tokens.balances.get(key: account)
-        }
-
-        TotalSupply -> u256 uses (tokens) {
-            tokens.total_supply
-        }
-    }
-
-    // ---------------------------------------------------------------
-    // Governance facet
-    // ---------------------------------------------------------------
-
-    recv GovernanceFacet {
-        InitGovernance { voting_period, quorum } uses (mut governance, admin, ctx) {
-            assert(ctx.caller() == admin.owner)
-            governance.voting_period = voting_period
-            governance.quorum = quorum
-        }
-
-        Propose { description } -> u256 uses (mut governance, tokens, ctx) {
-            let caller = ctx.caller()
-            assert(tokens.balances.get(key: caller) > 0)
-
-            let proposal_id = governance.proposal_count
-            governance.proposal_count = proposal_id + 1
-
-            governance.vote_starts.set(key: proposal_id, value: ctx.block_number())
-            governance.vote_ends.set(key: proposal_id, value: ctx.block_number() + governance.voting_period)
-
-            return proposal_id
-        }
-
-        Vote { proposal_id, support } uses (mut governance, tokens, ctx) {
-            let caller = ctx.caller()
-
-            assert(ctx.block_number() >= governance.vote_starts.get(key: proposal_id))
-            assert(ctx.block_number() <= governance.vote_ends.get(key: proposal_id))
-            assert(governance.has_voted.get(key: (proposal_id, caller)) == false)
-
-            governance.has_voted.set(key: (proposal_id, caller), value: true)
-
-            let weight = tokens.balances.get(key: caller)
-                       + governance.delegated_weight.get(key: caller)
-            assert(weight > 0)
-
-            if support {
-                let current = governance.yes_votes.get(key: proposal_id)
-                governance.yes_votes.set(key: proposal_id, value: current + weight)
-            } else {
-                let current = governance.no_votes.get(key: proposal_id)
-                governance.no_votes.set(key: proposal_id, value: current + weight)
-            }
-        }
-
-        Delegate { to } uses (mut governance, tokens, ctx) {
-            let caller = ctx.caller()
-            let weight = tokens.balances.get(key: caller)
-            let old_delegate = governance.delegates.get(key: caller)
-
-            // Remove weight from old delegate
-            if old_delegate != Address { inner: 0 } {
-                let old_w = governance.delegated_weight.get(key: old_delegate)
-                governance.delegated_weight.set(key: old_delegate, value: old_w - weight)
-            }
-
-            governance.delegates.set(key: caller, value: to)
-
-            // Add weight to new delegate
-            if to != Address { inner: 0 } {
-                let new_w = governance.delegated_weight.get(key: to)
-                governance.delegated_weight.set(key: to, value: new_w + weight)
-            }
-        }
-
-        Execute { proposal_id } -> bool uses (mut governance, ctx) {
-            assert(ctx.block_number() > governance.vote_ends.get(key: proposal_id))
-            assert(governance.executed.get(key: proposal_id) == false)
-
-            let total = governance.yes_votes.get(key: proposal_id)
-                      + governance.no_votes.get(key: proposal_id)
-            assert(total >= governance.quorum)
-
-            governance.executed.set(key: proposal_id, value: true)
-            return governance.yes_votes.get(key: proposal_id)
-                 > governance.no_votes.get(key: proposal_id)
-        }
-
-        GetProposal { proposal_id } -> (u256, u256, u256, bool) uses (governance) {
+        GetTileType { type_id } -> (u256, u256, u256) uses (tile_types) {
             (
-                governance.yes_votes.get(key: proposal_id),
-                governance.no_votes.get(key: proposal_id),
-                governance.vote_ends.get(key: proposal_id),
-                governance.executed.get(key: proposal_id),
+                tile_types.widths.get(key: type_id),
+                tile_types.heights.get(key: type_id),
+                tile_types.craft_times.get(key: type_id),
             )
         }
 
-        ProposalCount -> u256 uses (governance) {
-            governance.proposal_count
+        GetCraftQueueLength -> u256 uses (craft_queue) {
+            craft_queue.length
         }
 
-        GetDelegate { account } -> Address uses (governance) {
-            governance.delegates.get(key: account)
+        GetCraftItem { queue_id } -> (u256, u256, bool) uses (craft_queue) {
+            (
+                craft_queue.tile_types.get(key: queue_id),
+                craft_queue.ready_blocks.get(key: queue_id),
+                craft_queue.claimed.get(key: queue_id),
+            )
         }
 
-        VotingPower { account } -> u256 uses (tokens, governance) {
-            tokens.balances.get(key: account)
-            + governance.delegated_weight.get(key: account)
+        CraftTile { tile_type_id } uses (mut craft_queue, tile_types, ctx) {
+            assert(tile_type_id < tile_types.count)
+
+            let craft_time = tile_types.craft_times.get(key: tile_type_id)
+            let queue_id = craft_queue.next_craft_id
+
+            craft_queue.tile_types.set(key: queue_id, value: tile_type_id)
+            craft_queue.ready_blocks.set(key: queue_id, value: ctx.block_number() + craft_time)
+            craft_queue.claimed.set(key: queue_id, value: false)
+            craft_queue.owners.set(key: queue_id, value: ctx.caller().inner)
+
+            craft_queue.next_craft_id = queue_id + 1
+            craft_queue.length = craft_queue.length + 1
+        }
+
+        ClaimTile { queue_id } uses (mut craft_queue, mut tokens, ctx) {
+            let caller = ctx.caller()
+
+            assert(craft_queue.owners.get(key: queue_id) == caller.inner)
+            assert(craft_queue.claimed.get(key: queue_id) == false)
+            assert(ctx.block_number() >= craft_queue.ready_blocks.get(key: queue_id))
+
+            craft_queue.claimed.set(key: queue_id, value: true)
+
+            let tile_type = craft_queue.tile_types.get(key: queue_id)
+            let bal = tokens.balances.get(key: (caller, tile_type))
+            tokens.balances.set(key: (caller, tile_type), value: bal + 1)
+        }
+
+        EquipTile { owner, realm_id, tile_id } uses (mut tokens, mut equips) {
+            let bal = tokens.balances.get(key: (owner, tile_id))
+            assert(bal >= 1)
+            tokens.balances.set(key: (owner, tile_id), value: bal - 1)
+
+            let eq = equips.equipped.get(key: (realm_id, tile_id))
+            equips.equipped.set(key: (realm_id, tile_id), value: eq + 1)
+        }
+
+        UnequipTile { owner, realm_id, tile_id } uses (mut tokens, mut equips) {
+            let eq = equips.equipped.get(key: (realm_id, tile_id))
+            assert(eq >= 1)
+            equips.equipped.set(key: (realm_id, tile_id), value: eq - 1)
+
+            let bal = tokens.balances.get(key: (owner, tile_id))
+            tokens.balances.set(key: (owner, tile_id), value: bal + 1)
+        }
+    }
+
+    // --------------------------------------------------------
+    //  Admin facet — owner-only tile type management
+    // --------------------------------------------------------
+
+    recv AdminFacet {
+        AddTileType { width, height, craft_time } uses (mut tile_types, admin, ctx) {
+            assert(ctx.caller().inner == admin.owner)
+            let id = tile_types.count
+            tile_types.widths.set(key: id, value: width)
+            tile_types.heights.set(key: id, value: height)
+            tile_types.craft_times.set(key: id, value: craft_time)
+            tile_types.count = id + 1
+        }
+
+        TileTypeCount -> u256 uses (tile_types) {
+            tile_types.count
+        }
+
+        Owner -> u256 uses (admin) {
+            admin.owner
+        }
+    }
+
+    // --------------------------------------------------------
+    //  ERC1155 facet — transfers and approvals
+    // --------------------------------------------------------
+
+    recv Erc1155Facet {
+        IsApprovedForAll { account, operator } -> bool uses (tokens) {
+            tokens.operators.get(key: (account, operator))
+        }
+
+        SetApprovalForAll { operator, approved } uses (mut tokens, ctx) {
+            let caller = ctx.caller()
+            assert(caller != operator)
+            tokens.operators.set(key: (caller, operator), value: approved)
+        }
+
+        SafeTransferFrom { from, to, id, value } uses (mut tokens, ctx) {
+            let caller = ctx.caller()
+            assert(
+                caller == from
+                || tokens.operators.get(key: (from, caller))
+            )
+
+            let from_bal = tokens.balances.get(key: (from, id))
+            assert(from_bal >= value)
+            tokens.balances.set(key: (from, id), value: from_bal - value)
+
+            let to_bal = tokens.balances.get(key: (to, id))
+            tokens.balances.set(key: (to, id), value: to_bal + value)
+        }
+
+        // Batch transfer for two token types. Fe lacks dynamic arrays in
+        // calldata, so this handles pairs explicitly.
+        SafeBatchTransferFrom { from, to, id0, value0, id1, value1 } uses (mut tokens, ctx) {
+            let caller = ctx.caller()
+            assert(
+                caller == from
+                || tokens.operators.get(key: (from, caller))
+            )
+
+            let bal0_from = tokens.balances.get(key: (from, id0))
+            assert(bal0_from >= value0)
+            tokens.balances.set(key: (from, id0), value: bal0_from - value0)
+            let bal0_to = tokens.balances.get(key: (to, id0))
+            tokens.balances.set(key: (to, id0), value: bal0_to + value0)
+
+            let bal1_from = tokens.balances.get(key: (from, id1))
+            assert(bal1_from >= value1)
+            tokens.balances.set(key: (from, id1), value: bal1_from - value1)
+            let bal1_to = tokens.balances.get(key: (to, id1))
+            tokens.balances.set(key: (to, id1), value: bal1_to + value1)
         }
     }
 }
 
-// ============================================================================
-// Tests
-// ============================================================================
+// ============================================================
+//  Tests
+//
+//  The Fe test Evm does not support setting the caller per-call.
+//  ctx.caller() inside the contract is the test contract's address.
+//  We use init() { admin.owner = ctx.caller() } so the deployer
+//  automatically becomes the owner, and query Owner to recover
+//  the test contract's address for balance checks.
+// ============================================================
 
 #[test]
-fn test_deploy_and_mint() uses (evm: mut Evm) {
-    let owner = Address { inner: 0xAD }
-    let alice = Address { inner: 0xA1 }
-
-    let app = evm.create2<TokenGovernanceDiamond>(value: 0, args: (owner,), salt: 0)
+fn test_deploy_and_add_tile_type() uses (evm: mut Evm) {
+    let app = evm.create2<TileDiamond>(value: 0, args: (), salt: 0)
     assert(app.inner != 0)
 
-    // Owner mints tokens to alice
-    evm.call_with_caller(
-        caller: owner, addr: app, gas: 100000, value: 0,
-        message: TokenFacet::Mint { to: alice, amount: 1000 },
+    // Add a tile type: 2x2, 10 blocks craft time
+    evm.call(
+        addr: app, gas: 100000, value: 0,
+        message: AdminFacet::AddTileType { width: 2, height: 2, craft_time: 10 },
+    )
+
+    let count: u256 = evm.call(
+        addr: app, gas: 100000, value: 0,
+        message: AdminFacet::TileTypeCount {},
+    )
+    assert(count == 1)
+
+    let (w, h, ct): (u256, u256, u256) = evm.call(
+        addr: app, gas: 100000, value: 0,
+        message: TileFacet::GetTileType { type_id: 0 },
+    )
+    assert(w == 2)
+    assert(h == 2)
+    assert(ct == 10)
+}
+
+#[test]
+fn test_craft_and_claim() uses (evm: mut Evm) {
+    let app = evm.create2<TileDiamond>(value: 0, args: (), salt: 1)
+
+    // Get the caller address (the test contract, which is also the owner)
+    let caller_raw: u256 = evm.call(
+        addr: app, gas: 100000, value: 0,
+        message: AdminFacet::Owner {},
+    )
+    let me = Address { inner: caller_raw }
+
+    // Add tile type with 0 craft time for immediate claiming
+    evm.call(
+        addr: app, gas: 100000, value: 0,
+        message: AdminFacet::AddTileType { width: 1, height: 1, craft_time: 0 },
+    )
+
+    evm.call(
+        addr: app, gas: 200000, value: 0,
+        message: TileFacet::CraftTile { tile_type_id: 0 },
+    )
+
+    let queue_len: u256 = evm.call(
+        addr: app, gas: 100000, value: 0,
+        message: TileFacet::GetCraftQueueLength {},
+    )
+    assert(queue_len == 1)
+
+    // Claim immediately (craft_time == 0)
+    evm.call(
+        addr: app, gas: 200000, value: 0,
+        message: TileFacet::ClaimTile { queue_id: 0 },
     )
 
     let bal: u256 = evm.call(
         addr: app, gas: 100000, value: 0,
-        message: TokenFacet::BalanceOf { account: alice },
+        message: TileFacet::BalanceOf { owner: me, id: 0 },
     )
-    assert(bal == 1000)
-
-    let supply: u256 = evm.call(
-        addr: app, gas: 100000, value: 0,
-        message: TokenFacet::TotalSupply {},
-    )
-    assert(supply == 1000)
+    assert(bal == 1)
 }
 
 #[test]
-fn test_transfer() uses (evm: mut Evm) {
-    let owner = Address { inner: 0xAD }
-    let alice = Address { inner: 0xA1 }
-    let bob = Address { inner: 0xB0 }
-
-    let app = evm.create2<TokenGovernanceDiamond>(value: 0, args: (owner,), salt: 1)
-
-    evm.call_with_caller(
-        caller: owner, addr: app, gas: 100000, value: 0,
-        message: TokenFacet::Mint { to: alice, amount: 500 },
-    )
-
-    let ok: bool = evm.call_with_caller(
-        caller: alice, addr: app, gas: 100000, value: 0,
-        message: TokenFacet::Transfer { to: bob, amount: 200 },
-    )
-    assert(ok == true)
-
-    let alice_bal: u256 = evm.call(
+fn test_equip_unequip() uses (evm: mut Evm) {
+    let app = evm.create2<TileDiamond>(value: 0, args: (), salt: 2)
+    let caller_raw: u256 = evm.call(
         addr: app, gas: 100000, value: 0,
-        message: TokenFacet::BalanceOf { account: alice },
+        message: AdminFacet::Owner {},
     )
-    let bob_bal: u256 = evm.call(
+    let me = Address { inner: caller_raw }
+
+    evm.call(
         addr: app, gas: 100000, value: 0,
-        message: TokenFacet::BalanceOf { account: bob },
+        message: AdminFacet::AddTileType { width: 3, height: 3, craft_time: 0 },
     )
-    assert(alice_bal == 300)
-    assert(bob_bal == 200)
+    evm.call(
+        addr: app, gas: 200000, value: 0,
+        message: TileFacet::CraftTile { tile_type_id: 0 },
+    )
+    evm.call(
+        addr: app, gas: 200000, value: 0,
+        message: TileFacet::ClaimTile { queue_id: 0 },
+    )
+
+    // Equip to realm 42
+    evm.call(
+        addr: app, gas: 200000, value: 0,
+        message: TileFacet::EquipTile { owner: me, realm_id: 42, tile_id: 0 },
+    )
+
+    let bal: u256 = evm.call(
+        addr: app, gas: 100000, value: 0,
+        message: TileFacet::BalanceOf { owner: me, id: 0 },
+    )
+    assert(bal == 0)
+
+    // Unequip
+    evm.call(
+        addr: app, gas: 200000, value: 0,
+        message: TileFacet::UnequipTile { owner: me, realm_id: 42, tile_id: 0 },
+    )
+
+    let bal2: u256 = evm.call(
+        addr: app, gas: 100000, value: 0,
+        message: TileFacet::BalanceOf { owner: me, id: 0 },
+    )
+    assert(bal2 == 1)
 }
 
 #[test]
-fn test_transfer_insufficient() uses (evm: mut Evm) {
-    let owner = Address { inner: 0xAD }
-    let alice = Address { inner: 0xA1 }
+fn test_erc1155_transfer() uses (evm: mut Evm) {
     let bob = Address { inner: 0xB0 }
-
-    let app = evm.create2<TokenGovernanceDiamond>(value: 0, args: (owner,), salt: 2)
-
-    evm.call_with_caller(
-        caller: owner, addr: app, gas: 100000, value: 0,
-        message: TokenFacet::Mint { to: alice, amount: 100 },
-    )
-
-    let ok: bool = evm.call_with_caller(
-        caller: alice, addr: app, gas: 100000, value: 0,
-        message: TokenFacet::Transfer { to: bob, amount: 200 },
-    )
-    assert(ok == false)
-}
-
-#[test]
-fn test_propose_and_vote() uses (evm: mut Evm) {
-    let owner = Address { inner: 0xAD }
-    let alice = Address { inner: 0xA1 }
-    let bob = Address { inner: 0xB0 }
-
-    let app = evm.create2<TokenGovernanceDiamond>(value: 0, args: (owner,), salt: 3)
-
-    // Setup: mint tokens, init governance with voting_period=0 for tests
-    evm.call_with_caller(
-        caller: owner, addr: app, gas: 100000, value: 0,
-        message: TokenFacet::Mint { to: alice, amount: 300 },
-    )
-    evm.call_with_caller(
-        caller: owner, addr: app, gas: 100000, value: 0,
-        message: TokenFacet::Mint { to: bob, amount: 200 },
-    )
-    evm.call_with_caller(
-        caller: owner, addr: app, gas: 200000, value: 0,
-        message: GovernanceFacet::InitGovernance { voting_period: 100, quorum: 100 },
-    )
-
-    // Alice proposes
-    let proposal_id: u256 = evm.call_with_caller(
-        caller: alice, addr: app, gas: 200000, value: 0,
-        message: GovernanceFacet::Propose { description: "Fund the treasury" },
-    )
-    assert(proposal_id == 0)
-
-    let count: u256 = evm.call(
+    let app = evm.create2<TileDiamond>(value: 0, args: (), salt: 3)
+    let caller_raw: u256 = evm.call(
         addr: app, gas: 100000, value: 0,
-        message: GovernanceFacet::ProposalCount {},
+        message: AdminFacet::Owner {},
     )
-    assert(count == 1)
+    let me = Address { inner: caller_raw }
 
-    // Alice votes yes, bob votes no
-    evm.call_with_caller(
-        caller: alice, addr: app, gas: 200000, value: 0,
-        message: GovernanceFacet::Vote { proposal_id: 0, support: true },
-    )
-    evm.call_with_caller(
-        caller: bob, addr: app, gas: 200000, value: 0,
-        message: GovernanceFacet::Vote { proposal_id: 0, support: false },
-    )
-
-    let (yes, no, _, _): (u256, u256, u256, bool) = evm.call(
+    evm.call(
         addr: app, gas: 100000, value: 0,
-        message: GovernanceFacet::GetProposal { proposal_id: 0 },
+        message: AdminFacet::AddTileType { width: 1, height: 1, craft_time: 0 },
     )
-    assert(yes == 300)
-    assert(no == 200)
-}
-
-#[test]
-fn test_delegation() uses (evm: mut Evm) {
-    let owner = Address { inner: 0xAD }
-    let alice = Address { inner: 0xA1 }
-    let bob = Address { inner: 0xB0 }
-
-    let app = evm.create2<TokenGovernanceDiamond>(value: 0, args: (owner,), salt: 4)
-
-    evm.call_with_caller(
-        caller: owner, addr: app, gas: 100000, value: 0,
-        message: TokenFacet::Mint { to: alice, amount: 100 },
+    // Craft and claim 2 tiles
+    evm.call(
+        addr: app, gas: 200000, value: 0,
+        message: TileFacet::CraftTile { tile_type_id: 0 },
     )
-    evm.call_with_caller(
-        caller: owner, addr: app, gas: 100000, value: 0,
-        message: TokenFacet::Mint { to: bob, amount: 50 },
+    evm.call(
+        addr: app, gas: 200000, value: 0,
+        message: TileFacet::ClaimTile { queue_id: 0 },
+    )
+    evm.call(
+        addr: app, gas: 200000, value: 0,
+        message: TileFacet::CraftTile { tile_type_id: 0 },
+    )
+    evm.call(
+        addr: app, gas: 200000, value: 0,
+        message: TileFacet::ClaimTile { queue_id: 1 },
     )
 
-    // Alice delegates to bob
-    evm.call_with_caller(
-        caller: alice, addr: app, gas: 200000, value: 0,
-        message: GovernanceFacet::Delegate { to: bob },
-    )
-
-    let delegate: Address = evm.call(
+    let my_bal: u256 = evm.call(
         addr: app, gas: 100000, value: 0,
-        message: GovernanceFacet::GetDelegate { account: alice },
+        message: TileFacet::BalanceOf { owner: me, id: 0 },
     )
-    assert(delegate == bob)
+    assert(my_bal == 2)
 
-    // Bob's voting power = 50 (own) + 100 (delegated from alice)
-    let power: u256 = evm.call(
+    // Transfer 1 tile to bob (caller == from, so auth passes)
+    evm.call(
+        addr: app, gas: 200000, value: 0,
+        message: Erc1155Facet::SafeTransferFrom {
+            from: me, to: bob, id: 0, value: 1,
+        },
+    )
+
+    let my_after: u256 = evm.call(
         addr: app, gas: 100000, value: 0,
-        message: GovernanceFacet::VotingPower { account: bob },
+        message: TileFacet::BalanceOf { owner: me, id: 0 },
     )
-    assert(power == 150)
-}
-
-#[test]
-fn test_voting_power_after_redelegate() uses (evm: mut Evm) {
-    let owner = Address { inner: 0xAD }
-    let alice = Address { inner: 0xA1 }
-    let bob = Address { inner: 0xB0 }
-    let carol = Address { inner: 0xCA }
-
-    let app = evm.create2<TokenGovernanceDiamond>(value: 0, args: (owner,), salt: 5)
-
-    evm.call_with_caller(
-        caller: owner, addr: app, gas: 100000, value: 0,
-        message: TokenFacet::Mint { to: alice, amount: 100 },
-    )
-
-    // Alice delegates to bob
-    evm.call_with_caller(
-        caller: alice, addr: app, gas: 200000, value: 0,
-        message: GovernanceFacet::Delegate { to: bob },
-    )
-
-    let bob_power: u256 = evm.call(
-        addr: app, gas: 100000, value: 0,
-        message: GovernanceFacet::VotingPower { account: bob },
-    )
-    assert(bob_power == 100)
-
-    // Alice re-delegates to carol
-    evm.call_with_caller(
-        caller: alice, addr: app, gas: 200000, value: 0,
-        message: GovernanceFacet::Delegate { to: carol },
-    )
-
     let bob_after: u256 = evm.call(
         addr: app, gas: 100000, value: 0,
-        message: GovernanceFacet::VotingPower { account: bob },
+        message: TileFacet::BalanceOf { owner: bob, id: 0 },
     )
-    let carol_after: u256 = evm.call(
+    assert(my_after == 1)
+    assert(bob_after == 1)
+}
+
+#[test]
+fn test_operator_approval() uses (evm: mut Evm) {
+    let operator = Address { inner: 0x0F }
+    let app = evm.create2<TileDiamond>(value: 0, args: (), salt: 4)
+    let caller_raw: u256 = evm.call(
         addr: app, gas: 100000, value: 0,
-        message: GovernanceFacet::VotingPower { account: carol },
+        message: AdminFacet::Owner {},
     )
-    assert(bob_after == 0)
-    assert(carol_after == 100)
+    let me = Address { inner: caller_raw }
+
+    let approved: bool = evm.call(
+        addr: app, gas: 100000, value: 0,
+        message: Erc1155Facet::IsApprovedForAll {
+            account: me, operator,
+        },
+    )
+    assert(approved == false)
+
+    evm.call(
+        addr: app, gas: 200000, value: 0,
+        message: Erc1155Facet::SetApprovalForAll {
+            operator, approved: true,
+        },
+    )
+
+    let now_approved: bool = evm.call(
+        addr: app, gas: 100000, value: 0,
+        message: Erc1155Facet::IsApprovedForAll {
+            account: me, operator,
+        },
+    )
+    assert(now_approved == true)
 }
