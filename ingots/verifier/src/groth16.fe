@@ -1,4 +1,4 @@
-use ec::bn254::{G1Point, G2Point, negate}
+use ec::bn254::{G1Point, G2Point, negate, ec_pairing_4}
 use std::evm::ops
 
 /// Groth16 proof verification on BN254.
@@ -46,43 +46,10 @@ pub fn verify(vk: VerifyingKey, proof: Proof, input: u256) -> bool {
     let neg_a = negate(proof.a)
 
     // Pairing check: e(-A, B) * e(alpha, beta) * e(vk_x, gamma) * e(C, delta) == 1
-    // This is done via the ecPairing precompile (address 0x08) with 4 pairs
-    let ptr = std::evm::alloc(768)  // 4 pairs × 192 bytes each
-
-    // Pair 1: (-A, B)
-    ops::mstore(ptr, neg_a.x)
-    ops::mstore(ptr + 32, neg_a.y)
-    ops::mstore(ptr + 64, proof.b.x_imag)
-    ops::mstore(ptr + 96, proof.b.x_real)
-    ops::mstore(ptr + 128, proof.b.y_imag)
-    ops::mstore(ptr + 160, proof.b.y_real)
-
-    // Pair 2: (alpha, beta)
-    ops::mstore(ptr + 192, vk.alpha1.x)
-    ops::mstore(ptr + 224, vk.alpha1.y)
-    ops::mstore(ptr + 256, vk.beta2.x_imag)
-    ops::mstore(ptr + 288, vk.beta2.x_real)
-    ops::mstore(ptr + 320, vk.beta2.y_imag)
-    ops::mstore(ptr + 352, vk.beta2.y_real)
-
-    // Pair 3: (vk_x, gamma)
-    ops::mstore(ptr + 384, vk_x.x)
-    ops::mstore(ptr + 416, vk_x.y)
-    ops::mstore(ptr + 448, vk.gamma2.x_imag)
-    ops::mstore(ptr + 480, vk.gamma2.x_real)
-    ops::mstore(ptr + 512, vk.gamma2.y_imag)
-    ops::mstore(ptr + 544, vk.gamma2.y_real)
-
-    // Pair 4: (C, delta)
-    ops::mstore(ptr + 576, proof.c.x)
-    ops::mstore(ptr + 608, proof.c.y)
-    ops::mstore(ptr + 640, vk.delta2.x_imag)
-    ops::mstore(ptr + 672, vk.delta2.x_real)
-    ops::mstore(ptr + 704, vk.delta2.y_imag)
-    ops::mstore(ptr + 736, vk.delta2.y_real)
-
-    let success = ops::staticcall(ops::gas(), 8, ptr, 768, ptr, 32)
-    if success == 0 { ops::revert(0, 0) }
-
-    ops::mload(ptr) == 1
+    ec_pairing_4(
+        neg_a,    proof.b,
+        vk.alpha1, vk.beta2,
+        vk_x,     vk.gamma2,
+        proof.c,   vk.delta2,
+    )
 }

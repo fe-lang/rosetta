@@ -119,3 +119,34 @@ pub fn ec_pairing_2(
 
     ops::mload(ptr) == 1
 }
+
+/// Write a (G1, G2) pair to memory at the given offset.
+/// Each pair is 192 bytes: G1(x,y) + G2(x_imag, x_real, y_imag, y_real).
+fn write_pair(ptr: u256, a: G1Point, b: G2Point) {
+    ops::mstore(ptr, a.x)
+    ops::mstore(ptr + 32, a.y)
+    ops::mstore(ptr + 64, b.x_imag)
+    ops::mstore(ptr + 96, b.x_real)
+    ops::mstore(ptr + 128, b.y_imag)
+    ops::mstore(ptr + 160, b.y_real)
+}
+
+/// 4-pair pairing check: e(a1,b1) * e(a2,b2) * e(a3,b3) * e(a4,b4) == 1
+/// Used by Groth16 and Plonk verification.
+pub fn ec_pairing_4(
+    a1: G1Point, b1: G2Point,
+    a2: G1Point, b2: G2Point,
+    a3: G1Point, b3: G2Point,
+    a4: G1Point, b4: G2Point,
+) -> bool {
+    let ptr = std::evm::alloc(768)
+    write_pair(ptr, a1, b1)
+    write_pair(ptr + 192, a2, b2)
+    write_pair(ptr + 384, a3, b3)
+    write_pair(ptr + 576, a4, b4)
+
+    let success = ops::staticcall(ops::gas(), 8, ptr, 768, ptr, 32)
+    if success == 0 { ops::revert(0, 0) }
+
+    ops::mload(ptr) == 1
+}
