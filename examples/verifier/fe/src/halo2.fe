@@ -138,36 +138,27 @@ pub fn derive_challenges(
     }
 
     // Squeeze challenges
-    let result = t.squeeze()
-    let theta = result.0
-    t = result.2
+    let (theta, _, mut t) = t.squeeze()
 
     // Append more data for beta
     t = t.write_u256(proof.vanishing_random_comm.x)
     t = t.write_u256(proof.vanishing_random_comm.y)
-    let result = t.squeeze()
-    let beta = result.0
-    t = result.2
+    let (beta, _, mut t) = t.squeeze()
 
     // Gamma from beta
-    let result = t.squeeze()
-    let gamma = result.0
-    t = result.2
+    let (gamma, _, mut t) = t.squeeze()
 
     // Append permutation commitments for alpha
     for i in 0..4 {
         t = t.write_g1(proof.permutation_z_comms[i])
     }
-    let result = t.squeeze()
-    let alpha = result.0
-    t = result.2
+    let (alpha, _, mut t) = t.squeeze()
 
     // Append quotient commitments for x (evaluation point)
     for i in 0..4 {
         t = t.write_g1(proof.h_comms[i])
     }
-    let result = t.squeeze()
-    let x = result.0
+    let (x, _, _) = t.squeeze()
 
     (theta, beta, gamma, alpha, x)
 }
