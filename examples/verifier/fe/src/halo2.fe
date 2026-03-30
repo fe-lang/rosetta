@@ -6,6 +6,7 @@
 
 use ec::bn254::{G1Point, G2Point, negate, ec_pairing_2}
 use super::field
+use super::field::F_Q
 use super::transcript::Transcript
 use super::msm
 use std::evm::ops

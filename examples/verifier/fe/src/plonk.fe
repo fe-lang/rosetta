@@ -177,19 +177,19 @@ pub fn debug_challenges(
     t = t.write_g1(proof.lro[0])
     t = t.write_g1(proof.lro[1])
     t = t.write_g1(proof.lro[2])
-    let (_, gamma_raw, t) = t.squeeze()
+    let (_, gamma_raw, mut t) = t.squeeze()
 
     // beta
     t = t.write_label(BETA_LABEL, 4)
     t = t.write_u256(gamma_raw)
-    let (_, beta_raw, t) = t.squeeze()
+    let (_, beta_raw, mut t) = t.squeeze()
 
     // alpha
     t = t.write_label(ALPHA_LABEL, 5)
     t = t.write_u256(beta_raw)
     t = t.write_g1(proof.bsb22_commitments[0])
     t = t.write_g1(proof.z)
-    let (_, alpha_raw, t) = t.squeeze()
+    let (_, alpha_raw, mut t) = t.squeeze()
 
     // zeta
     t = t.write_label(ZETA_LABEL, 4)
@@ -228,15 +228,15 @@ pub fn debug_pi(
     t = t.write_g1(proof.lro[0])
     t = t.write_g1(proof.lro[1])
     t = t.write_g1(proof.lro[2])
-    let (gamma, gamma_raw, t) = t.squeeze()
+    let (gamma, gamma_raw, mut t) = t.squeeze()
     t = t.write_label(BETA_LABEL, 4)
     t = t.write_u256(gamma_raw)
-    let (beta, beta_raw, t) = t.squeeze()
+    let (beta, beta_raw, mut t) = t.squeeze()
     t = t.write_label(ALPHA_LABEL, 5)
     t = t.write_u256(beta_raw)
     t = t.write_g1(proof.bsb22_commitments[0])
     t = t.write_g1(proof.z)
-    let (alpha, alpha_raw, t) = t.squeeze()
+    let (alpha, alpha_raw, mut t) = t.squeeze()
     t = t.write_label(ZETA_LABEL, 4)
     t = t.write_u256(alpha_raw)
     t = t.write_g1(proof.h[0])
@@ -308,22 +308,20 @@ pub fn verify(
     t = t.write_g1(proof.lro[0])
     t = t.write_g1(proof.lro[1])
     t = t.write_g1(proof.lro[2])
-
-
-
+    let (gamma, gamma_raw, mut t) = t.squeeze()
 
     // beta: SHA256("beta" || gamma_raw_hash)
     // Note: gnark chains the RAW 32-byte hash, not the reduced field element
     t = t.write_label(BETA_LABEL, 4) // "beta"
     t = t.write_u256(gamma_raw)
-    let (beta, beta_raw, t) = t.squeeze()
+    let (beta, beta_raw, mut t) = t.squeeze()
 
     // alpha: SHA256("alpha" || beta_raw_hash || bsb22_commitments || Z)
     t = t.write_label(ALPHA_LABEL, 5) // "alpha"
     t = t.write_u256(beta_raw)
     t = t.write_g1(proof.bsb22_commitments[0])
     t = t.write_g1(proof.z)
-    let (alpha, alpha_raw, t) = t.squeeze()
+    let (alpha, alpha_raw, mut t) = t.squeeze()
 
     // zeta: SHA256("zeta" || alpha_raw_hash || H0 || H1 || H2)
     t = t.write_label(ZETA_LABEL, 4) // "zeta"
