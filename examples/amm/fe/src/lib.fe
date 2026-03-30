@@ -20,13 +20,19 @@ msg AmmMsg {
     GetK -> u256,
 }
 
-/// Typed reserve amounts. ReserveA and ReserveB are distinct types —
-/// passing one where the other is expected is a compile error.
-/// Depends on: WordRepr for newtypes (to use in StorageMap values).
-struct ReserveA { pub val: u256 }
-struct ReserveB { pub val: u256 }
-impl Copy for ReserveA {}
-impl Copy for ReserveB {}
+#[event]
+struct LiquidityAdded {
+    amount_a: u256,
+    amount_b: u256,
+}
+
+#[event]
+struct Swap {
+    #[indexed]
+    direction: u256, // 0 = A->B, 1 = B->A
+    amount_in: u256,
+    amount_out: u256,
+}
 
 struct AmmStore {
     reserve_a: u256,
@@ -42,7 +48,7 @@ fn swap_amount(reserve_in: u256, reserve_out: u256, amount_in: u256) -> u256 {
     }
 }
 
-pub contract SimpleAmm uses (ctx: Ctx) {
+pub contract SimpleAmm uses (ctx: Ctx, log: mut Log) {
     mut store: AmmStore
 
     init() uses (mut store) {
@@ -51,24 +57,27 @@ pub contract SimpleAmm uses (ctx: Ctx) {
     }
 
     recv AmmMsg {
-        AddLiquidity { amount_a, amount_b } uses (mut store) {
+        AddLiquidity { amount_a, amount_b } uses (mut store, mut log) {
             store.reserve_a += amount_a
             store.reserve_b += amount_b
+            log.emit(LiquidityAdded { amount_a, amount_b })
         }
 
-        SwapAForB { amount_in } -> u256 uses (mut store) {
+        SwapAForB { amount_in } -> u256 uses (mut store, mut log) {
             let amount_out = swap_amount(store.reserve_a, store.reserve_b, amount_in)
             if amount_out == 0 { return 0 }
             store.reserve_a += amount_in
             store.reserve_b -= amount_out
+            log.emit(Swap { direction: 0, amount_in, amount_out })
             amount_out
         }
 
-        SwapBForA { amount_in } -> u256 uses (mut store) {
+        SwapBForA { amount_in } -> u256 uses (mut store, mut log) {
             let amount_out = swap_amount(store.reserve_b, store.reserve_a, amount_in)
             if amount_out == 0 { return 0 }
             store.reserve_b += amount_in
             store.reserve_a -= amount_out
+            log.emit(Swap { direction: 1, amount_in, amount_out })
             amount_out
         }
 
