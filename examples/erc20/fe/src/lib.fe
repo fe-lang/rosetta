@@ -92,6 +92,56 @@ pub contract Token uses (ctx: Ctx) {
     }
 }
 
+/// A vault that holds tokens on behalf of depositors.
+/// Demonstrates cross-contract calls via typed messages.
+///
+/// In Solidity, calling another contract requires either an interface
+/// declaration or raw abi.encodeWithSelector. In Fe, the msg type IS
+/// the interface — the same Erc20 msg used by Token is used by Vault
+/// to call it. No separate interface file, no ABI mismatch risk.
+msg VaultMsg {
+    #[selector = sol("deposit(address,uint256)")]
+    Deposit { token: Address, amount: u256 },
+    #[selector = sol("balance(address)")]
+    Balance { token: Address } -> u256,
+}
+
+struct VaultStore {
+    holdings: StorageMap<Address, u256>,
+}
+
+pub contract Vault uses (ctx: Ctx, call: mut Call) {
+    mut store: VaultStore
+
+    init() {}
+
+    recv VaultMsg {
+        // Pull tokens from caller into the vault via transferFrom.
+        // Caller must have approved the vault first.
+        Deposit { token, amount } uses (mut store, ctx, mut call) {
+            let ok: bool = call.call(
+                addr: token, gas: 100000, value: 0,
+                message: Erc20::TransferFrom {
+                    from: ctx.caller(),
+                    to: ctx.address(),
+                    amount,
+                },
+            )
+            if ok {
+                store.holdings.set(
+                    key: token,
+                    value: store.holdings.get(key: token) + amount,
+                )
+            }
+        }
+
+        // Query how many of a given token the vault holds.
+        Balance { token } -> u256 uses (store) {
+            store.holdings.get(key: token)
+        }
+    }
+}
+
 #[test]
 fn test_deploy_and_check_supply() uses (evm: mut Evm) {
     let owner = Address { inner: 1 }

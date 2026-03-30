@@ -1,11 +1,22 @@
 use std::evm::ops
 
+/// Hash two u256 values, sorted so hash(a,b) == hash(b,a).
+/// This is the standard "sorted pair" Merkle hash used by OpenZeppelin.
+fn hash_sorted_pair(a: u256, b: u256, scratch: u256) -> u256 {
+    if a < b {
+        ops::mstore(scratch, a)
+        ops::mstore(scratch + 32, b)
+    } else {
+        ops::mstore(scratch, b)
+        ops::mstore(scratch + 32, a)
+    }
+    ops::keccak256(scratch, 64)
+}
+
 /// Verify a Merkle proof with const-generic depth.
 ///
 /// The depth is a compile-time parameter — passing a depth-7 proof to a
 /// depth-32 verifier is a type error. No separate `proof_len` needed.
-///
-/// Depends on: const generic N in array + range position (for i in 0..N).
 pub fn verify<const DEPTH: usize>(proof: [u256; DEPTH], root: u256, leaf: u256) -> bool {
     compute_root(proof, leaf) == root
 }
@@ -15,35 +26,20 @@ pub fn compute_root<const DEPTH: usize>(proof: [u256; DEPTH], leaf: u256) -> u25
     let scratch = std::evm::alloc(64)
     let mut hash = leaf
     for i in 0..DEPTH {
-        let sibling = proof[i]
-        if hash < sibling {
-            ops::mstore(scratch, hash)
-            ops::mstore(scratch + 32, sibling)
-        } else {
-            ops::mstore(scratch, sibling)
-            ops::mstore(scratch + 32, hash)
-        }
-        hash = ops::keccak256(scratch, 64)
+        hash = hash_sorted_pair(hash, proof[i], scratch)
     }
     hash
 }
 
 /// Compute root reading proof directly from calldata (zero-copy).
 pub fn compute_root_calldata(proof_offset: u256, proof_len: u256, leaf: u256) -> u256 {
+    let scratch = std::evm::alloc(64)
     let mut hash = leaf
     let mut offset = proof_offset
     let end = offset + proof_len * 32
 
     while offset < end {
-        let sibling = ops::calldataload(offset)
-        if hash < sibling {
-            ops::mstore(0, hash)
-            ops::mstore(32, sibling)
-        } else {
-            ops::mstore(0, sibling)
-            ops::mstore(32, hash)
-        }
-        hash = ops::keccak256(0, 64)
+        hash = hash_sorted_pair(hash, ops::calldataload(offset), scratch)
         offset = offset + 32
     }
     hash
