@@ -1,0 +1,60 @@
+/// Fixed-point arithmetic with compile-time scale.
+///
+/// The scale factor is a type parameter, so the compiler rejects
+/// mixing values of different scales:
+///
+///   const WAD: u256 = 1_000_000_000_000_000_000
+///   const RAY: u256 = 1_000_000_000_000_000_000_000_000_000
+///   let price: FixedPoint<WAD> = FixedPoint<WAD>::from_int(42)
+///   let rate: FixedPoint<RAY> = FixedPoint<RAY>::from_int(1)
+///   let bad = price + rate    // compile error: type mismatch
+
+use core::ops::{Add, Sub}
+use core::Copy
+
+pub struct FixedPoint<const SCALE: u256> {
+    pub raw: u256,
+}
+
+impl<const S: u256> Copy for FixedPoint<S> {}
+
+impl<const S: u256> Add for FixedPoint<S> {
+    fn add(own self, _ rhs: own FixedPoint<S>) -> FixedPoint<S> {
+        FixedPoint<S> { raw: self.raw + rhs.raw }
+    }
+}
+
+impl<const S: u256> Sub for FixedPoint<S> {
+    fn sub(own self, _ rhs: own FixedPoint<S>) -> FixedPoint<S> {
+        FixedPoint<S> { raw: self.raw - rhs.raw }
+    }
+}
+
+impl<const S: u256> FixedPoint<S> {
+    /// Wrap a raw u256 that is already scaled.
+    pub fn from_raw(raw: u256) -> FixedPoint<S> {
+        FixedPoint<S> { raw }
+    }
+
+    pub fn one() -> FixedPoint<S> { FixedPoint<S> { raw: S } }
+
+    pub fn from_int(n: u256) -> FixedPoint<S> {
+        FixedPoint<S> { raw: n * S }
+    }
+
+    pub fn mul_down(self, rhs: FixedPoint<S>) -> FixedPoint<S> {
+        FixedPoint<S> { raw: self.raw * rhs.raw / S }
+    }
+
+    pub fn mul_up(self, rhs: FixedPoint<S>) -> FixedPoint<S> {
+        FixedPoint<S> { raw: (self.raw * rhs.raw + S - 1) / S }
+    }
+
+    pub fn div_down(self, rhs: FixedPoint<S>) -> FixedPoint<S> {
+        FixedPoint<S> { raw: self.raw * S / rhs.raw }
+    }
+
+    pub fn div_up(self, rhs: FixedPoint<S>) -> FixedPoint<S> {
+        FixedPoint<S> { raw: (self.raw * S + rhs.raw - 1) / rhs.raw }
+    }
+}
