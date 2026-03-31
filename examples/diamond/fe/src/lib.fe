@@ -17,10 +17,6 @@ msg TokenMsg {
     TotalSupply -> u256,
 }
 
-/// Typed proposal ID — prevents mixing with other u256 values.
-struct ProposalId { pub val: u256 }
-impl Copy for ProposalId {}
-
 msg GovMsg {
     #[selector = sol("propose(uint256)")]
     Propose { description: u256 } -> u256,

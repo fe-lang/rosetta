@@ -38,17 +38,17 @@ pub fn hash(a: u256, b: u256) -> u256 {
 
     // First half full rounds
     for r in 0..N_ROUNDS_F / 2 - 1 {
-        let result = full_round(s0, s1, s2, (r + 1) * 3, M)
-        s0 = result.0
-        s1 = result.1
-        s2 = result.2
+        let (r0, r1, r2) = full_round(s0, s1, s2, (r + 1) * 3, M)
+        s0 = r0
+        s1 = r1
+        s2 = r2
     }
 
     // Pre-sparse round (uses P_MAT instead of M)
-    let result = full_round(s0, s1, s2, (N_ROUNDS_F / 2) * 3, P_MAT)
-    s0 = result.0
-    s1 = result.1
-    s2 = result.2
+    let (r0, r1, r2) = full_round(s0, s1, s2, (N_ROUNDS_F / 2) * 3, P_MAT)
+    s0 = r0
+    s1 = r1
+    s2 = r2
 
     // Partial rounds (S-box on first element only, sparse matrix)
     for r in 0..N_ROUNDS_P {
@@ -62,18 +62,18 @@ pub fn hash(a: u256, b: u256) -> u256 {
 
     // Second half full rounds
     for r in 0..N_ROUNDS_F / 2 - 1 {
-        let result = full_round(s0, s1, s2, (N_ROUNDS_F / 2 + 1) * 3 + N_ROUNDS_P + r * 3, M)
-        s0 = result.0
-        s1 = result.1
-        s2 = result.2
+        let (r0, r1, r2) = full_round(s0, s1, s2, (N_ROUNDS_F / 2 + 1) * 3 + N_ROUNDS_P + r * 3, M)
+        s0 = r0
+        s1 = r1
+        s2 = r2
     }
 
     // Final round (no round constants)
     let s0 = s0.pow5()
     let s1 = s1.pow5()
     let s2 = s2.pow5()
-    let result = mds(s0, s1, s2, M)
-    result.0.val
+    let (out, _, _) = mds(s0, s1, s2, M)
+    out.val
 }
 
 // Tests depend on sonatina#227 fix.

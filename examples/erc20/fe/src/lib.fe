@@ -1,16 +1,9 @@
 /// ERC-20 token in Fe.
 ///
 /// One file, no inheritance, exhaustive msg dispatch. Effects declare
-/// exactly what each handler can access. Transfer handlers return Result
-/// instead of bool — errors are typed, not just false.
+/// exactly what each handler can access.
 
 use std::abi::sol
-use core::ops::Eq
-
-pub enum TransferError {
-    InsufficientBalance,
-    InsufficientAllowance,
-}
 
 msg Erc20 {
     #[selector = sol("totalSupply()")]
@@ -37,10 +30,6 @@ struct TokenStore {
     balances: StorageMap<Address, u256>,
     allowances: StorageMap<(Address, Address), u256>,
 }
-
-// Future: transfer handlers could return Result<TransferError, bool> instead of
-// bool, using Fe's monadic Result. Depends on: ABI encoding for Result return types,
-// and passing effects-backed storage to helper functions.
 
 pub contract Token uses (ctx: Ctx) {
     mut store: TokenStore
