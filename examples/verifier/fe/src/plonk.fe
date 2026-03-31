@@ -1,4 +1,4 @@
-use ec::bn254::{G1Point, G2Point, ec_add, ec_mul, negate, ec_pairing_2}
+use ec::bn254::{G1Point, G2Point, g1_add, g1_mul, negate, pairing_2}
 use super::field
 use super::msm
 use super::field::F_Q
@@ -60,77 +60,71 @@ const HASH_FR_LEN_IN_BYTES: u256 = 48  // 0x30
 const HASH_FR_SIZE_DOMAIN: u256 = 11   // length of "BSB22-Plonk"
 const HASH_FR_BB: u256 = 340282366920938463463374607431768211456 // 2^128
 
-fn hash_fr(_ x: u256, _ y: u256) -> u256 {
+fn hash_fr(_ x: u256, _ y: u256) -> u256 uses (evm: mut Evm) {
     let ptr = std::evm::alloc(256)
 
     // Round 0: SHA256(zeros64 || x || y || 0x00 || 0x30 || 0x00 || "BSB22-Plonk" || 0x0b)
-    mstore(ptr, 0)           // 32 zero bytes
-    mstore(ptr + 32, 0)      // 32 zero bytes
-    mstore(ptr + 64, x)
-    mstore(ptr + 96, y)
-    mstore8(ptr + 128, 0)
-    mstore8(ptr + 129, 48)   // HASH_FR_LEN_IN_BYTES
-    mstore8(ptr + 130, 0)
+    evm.mstore(addr: ptr, value: 0)           // 32 zero bytes
+    evm.mstore(addr: ptr + 32, value: 0)      // 32 zero bytes
+    evm.mstore(addr: ptr + 64, value: x)
+    evm.mstore(addr: ptr + 96, value: y)
+    evm.mstore8(addr: ptr + 128, value: 0)
+    evm.mstore8(addr: ptr + 129, value: 48)   // HASH_FR_LEN_IN_BYTES
+    evm.mstore8(addr: ptr + 130, value: 0)
     // "BSB22-Plonk" = 42 53 42 32 32 2d 50 6c 6f 6e 6b
-    mstore8(ptr + 131, 0x42)
-    mstore8(ptr + 132, 0x53)
-    mstore8(ptr + 133, 0x42)
-    mstore8(ptr + 134, 0x32)
-    mstore8(ptr + 135, 0x32)
-    mstore8(ptr + 136, 0x2d)
-    mstore8(ptr + 137, 0x50)
-    mstore8(ptr + 138, 0x6c)
-    mstore8(ptr + 139, 0x6f)
-    mstore8(ptr + 140, 0x6e)
-    mstore8(ptr + 141, 0x6b)
-    mstore8(ptr + 142, 11)   // HASH_FR_SIZE_DOMAIN
+    evm.mstore8(addr: ptr + 131, value: 0x42)
+    evm.mstore8(addr: ptr + 132, value: 0x53)
+    evm.mstore8(addr: ptr + 133, value: 0x42)
+    evm.mstore8(addr: ptr + 134, value: 0x32)
+    evm.mstore8(addr: ptr + 135, value: 0x32)
+    evm.mstore8(addr: ptr + 136, value: 0x2d)
+    evm.mstore8(addr: ptr + 137, value: 0x50)
+    evm.mstore8(addr: ptr + 138, value: 0x6c)
+    evm.mstore8(addr: ptr + 139, value: 0x6f)
+    evm.mstore8(addr: ptr + 140, value: 0x6e)
+    evm.mstore8(addr: ptr + 141, value: 0x6b)
+    evm.mstore8(addr: ptr + 142, value: 11)   // HASH_FR_SIZE_DOMAIN
 
-    let success = raw_staticcall(gas(), 2, ptr, 143, ptr, 32)
-    if success == 0 { std::evm::assert(false) }
-    let b0 = mload(ptr)
+    let b0 = sha256(ptr, 143)
 
     // Round 1: SHA256(b0 || 0x01 || "BSB22-Plonk" || 0x0b)
-    // b0 is already at ptr (32 bytes)
-    mstore8(ptr + 32, 1)  // HASH_FR_ONE
-    mstore8(ptr + 33, 0x42)
-    mstore8(ptr + 34, 0x53)
-    mstore8(ptr + 35, 0x42)
-    mstore8(ptr + 36, 0x32)
-    mstore8(ptr + 37, 0x32)
-    mstore8(ptr + 38, 0x2d)
-    mstore8(ptr + 39, 0x50)
-    mstore8(ptr + 40, 0x6c)
-    mstore8(ptr + 41, 0x6f)
-    mstore8(ptr + 42, 0x6e)
-    mstore8(ptr + 43, 0x6b)
-    mstore8(ptr + 44, 11)
+    evm.mstore(addr: ptr, value: b0)
+    evm.mstore8(addr: ptr + 32, value: 1)  // HASH_FR_ONE
+    evm.mstore8(addr: ptr + 33, value: 0x42)
+    evm.mstore8(addr: ptr + 34, value: 0x53)
+    evm.mstore8(addr: ptr + 35, value: 0x42)
+    evm.mstore8(addr: ptr + 36, value: 0x32)
+    evm.mstore8(addr: ptr + 37, value: 0x32)
+    evm.mstore8(addr: ptr + 38, value: 0x2d)
+    evm.mstore8(addr: ptr + 39, value: 0x50)
+    evm.mstore8(addr: ptr + 40, value: 0x6c)
+    evm.mstore8(addr: ptr + 41, value: 0x6f)
+    evm.mstore8(addr: ptr + 42, value: 0x6e)
+    evm.mstore8(addr: ptr + 43, value: 0x6b)
+    evm.mstore8(addr: ptr + 44, value: 11)
 
-    let success = raw_staticcall(gas(), 2, ptr, 45, ptr, 32)
-    if success == 0 { std::evm::assert(false) }
-    let b1 = mload(ptr)
+    let b1 = sha256(ptr, 45)
 
     // Round 2: SHA256((b0 ^ b1) || 0x02 || "BSB22-Plonk" || 0x0b)
-    mstore(ptr + 32, b0 ^ b1)  // xor at offset 32
-    mstore8(ptr + 64, 2)       // HASH_FR_TWO
-    mstore8(ptr + 65, 0x42)
-    mstore8(ptr + 66, 0x53)
-    mstore8(ptr + 67, 0x42)
-    mstore8(ptr + 68, 0x32)
-    mstore8(ptr + 69, 0x32)
-    mstore8(ptr + 70, 0x2d)
-    mstore8(ptr + 71, 0x50)
-    mstore8(ptr + 72, 0x6c)
-    mstore8(ptr + 73, 0x6f)
-    mstore8(ptr + 74, 0x6e)
-    mstore8(ptr + 75, 0x6b)
-    mstore8(ptr + 76, 11)
+    evm.mstore(addr: ptr, value: b0 ^ b1)
+    evm.mstore8(addr: ptr + 32, value: 2)       // HASH_FR_TWO
+    evm.mstore8(addr: ptr + 33, value: 0x42)
+    evm.mstore8(addr: ptr + 34, value: 0x53)
+    evm.mstore8(addr: ptr + 35, value: 0x42)
+    evm.mstore8(addr: ptr + 36, value: 0x32)
+    evm.mstore8(addr: ptr + 37, value: 0x32)
+    evm.mstore8(addr: ptr + 38, value: 0x2d)
+    evm.mstore8(addr: ptr + 39, value: 0x50)
+    evm.mstore8(addr: ptr + 40, value: 0x6c)
+    evm.mstore8(addr: ptr + 41, value: 0x6f)
+    evm.mstore8(addr: ptr + 42, value: 0x6e)
+    evm.mstore8(addr: ptr + 43, value: 0x6b)
+    evm.mstore8(addr: ptr + 44, value: 11)
 
-    // Hash from offset 32, length 45
-    let success = raw_staticcall(gas(), 2, ptr + 32, 45, ptr + 32, 32)
-    if success == 0 { std::evm::assert(false) }
+    let b2 = sha256(ptr, 45)
 
     // Result: 2^128 * b1 + b2[:16] mod R
-    let b2_high = mload(ptr + 32) >> 128  // top 16 bytes of b2
+    let b2_high = b2 >> 128  // top 16 bytes of b2
     addmod(mulmod(b1, HASH_FR_BB, F_Q), b2_high, F_Q)
 }
 
@@ -156,7 +150,7 @@ fn batch_invert_2(_ a: u256, _ b: u256) -> (u256, u256) {
 pub fn debug_challenges(
     vk: own PlonkVK, proof: own PlonkProof,
     pub_inputs: [u256; 5],
-) -> (u256, u256, u256, u256) {
+) -> (u256, u256, u256, u256) uses (evm: mut Evm) {
     let mut t = Transcript::new()
 
     // gamma
@@ -207,7 +201,7 @@ pub fn debug_challenges(
 pub fn debug_pi(
     vk: own PlonkVK, proof: own PlonkProof,
     pub_inputs: [u256; 5],
-) -> (u256, u256) {
+) -> (u256, u256) uses (evm: mut Evm) {
     let one: u256 = 1
     // Reuse the challenge derivation from verify
     let mut t = Transcript::new()
@@ -280,7 +274,7 @@ pub fn debug_pi(
 pub fn verify(
     vk: own PlonkVK, proof: own PlonkProof,
     pub_inputs: [u256; 5],
-) -> bool {
+) -> bool uses (evm: mut Evm) {
     let one: u256 = 1
 
     // --- 1. Fiat-Shamir challenge derivation ---
@@ -519,21 +513,21 @@ pub fn verify(
     let shifted_zeta = field::mul<F_Q>(zeta, vk.omega)
 
     // folded_quotients = batched_h + u * z_shifted_h
-    let folded_quotients = ec_add(a: proof.batched_h, b: ec_mul(p: proof.z_shifted_h, s: u_challenge))
+    let folded_quotients = g1_add(a: proof.batched_h, b: g1_mul(p: proof.z_shifted_h, s: u_challenge))
 
     // folded_digests = folded_digest + u * proof.z
     //               - folded_eval_commit
     //               + zeta * batched_h + u * shifted_zeta * z_shifted_h
-    let folded_evals_commit = ec_mul(p: vk.g1_srs, s: field::add<F_Q>(folded_eval, field::mul<F_Q>(u_challenge, zu)))
+    let folded_evals_commit = g1_mul(p: vk.g1_srs, s: field::add<F_Q>(folded_eval, field::mul<F_Q>(u_challenge, zu)))
 
-    let point_term = ec_add(
-        a: ec_mul(p: proof.batched_h, s: zeta),
-        b: ec_mul(p: proof.z_shifted_h, s: field::mul<F_Q>(u_challenge, shifted_zeta))
+    let point_term = g1_add(
+        a: g1_mul(p: proof.batched_h, s: zeta),
+        b: g1_mul(p: proof.z_shifted_h, s: field::mul<F_Q>(u_challenge, shifted_zeta))
     )
 
-    let lhs = ec_add(
-        a: ec_add(
-            a: ec_add(a: folded_digest, b: ec_mul(p: proof.z, s: u_challenge)),
+    let lhs = g1_add(
+        a: g1_add(
+            a: g1_add(a: folded_digest, b: g1_mul(p: proof.z, s: u_challenge)),
             b: negate(p: folded_evals_commit)
         ),
         b: point_term
@@ -542,7 +536,7 @@ pub fn verify(
     let neg_quotients = negate(p: folded_quotients)
 
     // Pairing check: e(lhs, G2) * e(-folded_quotients, [alpha]G2) == 1
-    ec_pairing_2(a1: lhs, b1: vk.g2_srs[0], a2: neg_quotients, b2: vk.g2_srs[1])
+    pairing_2(a1: lhs, b1: vk.g2_srs[0], a2: neg_quotients, b2: vk.g2_srs[1])
 }
 
 // -----------------------------------------------------------------------
@@ -552,7 +546,7 @@ pub fn verify(
 // Known values from a real gnark Plonk proof (SP1 test vectors).
 
 #[test]
-fn test_hash_fr() {
+fn test_hash_fr() uses (evm: mut Evm) {
     // BSB22 commitment from the test proof
     let x: u256 = 0x27086e886de4f31d65e997d9dd08e35dd6590101d9185db7c8c5dd7dd9348c9c
     let y: u256 = 0x1b711862d9757e744014177960751f5f5a84f14bbc1b019021db0666b8e55fc3
@@ -579,7 +573,7 @@ fn test_pow_mod() {
 }
 
 #[test]
-fn test_transcript_gamma() {
+fn test_transcript_gamma() uses (evm: mut Evm) {
     // Test that the transcript produces the correct gamma hash.
     // This uses the hardcoded VK from plonk_bench and known proof data.
     let mut t = Transcript::new()
@@ -689,7 +683,7 @@ fn test_linearization_coefficients() {
 }
 
 #[test]
-fn test_verify_end_to_end() {
+fn test_verify_end_to_end() uses (evm: mut Evm) {
     // Construct the VK (same as plonk_bench::example_vk)
     let vk = PlonkVK {
         n: 16777216,
@@ -750,7 +744,7 @@ fn test_verify_end_to_end() {
     let pi1: u256 = 0x0f1cb7decf31e49c7934c3740bec5df3ead27bc947af739782930df6e37e9d90
 
     // Test: run the MSM with actual scalars to see if it reverts
-    use ec::bn254::{ec_mul, ec_add}
+    use ec::bn254::{g1_mul, g1_add}
 
     let one: u256 = 1
     let l: u256 = 0x2a2af70b568d007ce53077a078437c2acf6cad206354b0ffa823b4de87918a05
@@ -834,9 +828,9 @@ fn test_verify_end_to_end() {
     folded_eval = field::add<F_Q>(folded_eval, field::mul<F_Q>(claimed[6], g6))
 
     // KZG points — test each individually
-    let _t1 = ec_mul(p: proof.batched_h, s: 1)  // W_zeta
-    let _t2 = ec_mul(p: proof.z_shifted_h, s: 1)  // W_zeta_omega
-    let _t3 = ec_mul(p: vk.g1_srs, s: 1)  // G1 SRS
+    let _t1 = g1_mul(p: proof.batched_h, s: 1)  // W_zeta
+    let _t2 = g1_mul(p: proof.z_shifted_h, s: 1)  // W_zeta_omega
+    let _t3 = g1_mul(p: vk.g1_srs, s: 1)  // G1 SRS
 
     // Derive U challenge
     let zeta_raw: u256 = 0xc3b84ae752216a5cae098493e1282230f2d8db540b958f2c6d0067f9ee0fed8a
@@ -857,24 +851,24 @@ fn test_verify_end_to_end() {
     use ec::bn254::negate
 
     // Step A
-    let u_times_zsh = ec_mul(p: proof.z_shifted_h, s: u_challenge)  // checkpoint A1
-    let folded_quotients = ec_add(a: proof.batched_h, b: u_times_zsh)  // checkpoint A2
+    let u_times_zsh = g1_mul(p: proof.z_shifted_h, s: u_challenge)  // checkpoint A1
+    let folded_quotients = g1_add(a: proof.batched_h, b: u_times_zsh)  // checkpoint A2
 
     // Step B
     let eval_sum = field::add<F_Q>(folded_eval, field::mul<F_Q>(u_challenge, zu))
-    let folded_evals_commit = ec_mul(p: vk.g1_srs, s: eval_sum)  // checkpoint B
+    let folded_evals_commit = g1_mul(p: vk.g1_srs, s: eval_sum)  // checkpoint B
 
     // Step C: point_term = zeta * batched_h + u * shifted_zeta * z_shifted_h
-    let zeta_times_wz = ec_mul(p: proof.batched_h, s: zeta)
-    let us_zeta_times_wzo = ec_mul(p: proof.z_shifted_h, s: field::mul<F_Q>(u_challenge, shifted_zeta))
-    let point_term = ec_add(a: zeta_times_wz, b: us_zeta_times_wzo)
+    let zeta_times_wz = g1_mul(p: proof.batched_h, s: zeta)
+    let us_zeta_times_wzo = g1_mul(p: proof.z_shifted_h, s: field::mul<F_Q>(u_challenge, shifted_zeta))
+    let point_term = g1_add(a: zeta_times_wz, b: us_zeta_times_wzo)
 
     // Step D: lhs = folded_digest + u*Z - folded_evals_commit + point_term
-    let u_times_z = ec_mul(p: proof.z, s: u_challenge)
-    let step1 = ec_add(a: folded_digest, b: u_times_z)
+    let u_times_z = g1_mul(p: proof.z, s: u_challenge)
+    let step1 = g1_add(a: folded_digest, b: u_times_z)
     let neg_evals = negate(p: folded_evals_commit)
-    let step2 = ec_add(a: step1, b: neg_evals)
-    let lhs = ec_add(a: step2, b: point_term)
+    let step2 = g1_add(a: step1, b: neg_evals)
+    let lhs = g1_add(a: step2, b: point_term)
 
     // All EC ops passed above (MSM, fold, KZG points).
     // Now call the actual verify function:
@@ -956,7 +950,7 @@ fn test_kzg_fold_scalars() {
 }
 
 #[test]
-fn test_v6_gamma_label_and_vk() {
+fn test_v6_gamma_label_and_vk() uses (evm: mut Evm) {
     // Verify that SHA256("gamma" + first VK point) matches expected
     let mut t = Transcript::new()
     t = t.write_label(label: GAMMA_LABEL, label_len: 5)
@@ -968,7 +962,7 @@ fn test_v6_gamma_label_and_vk() {
 }
 
 #[test]
-fn test_v6_gamma_challenge() {
+fn test_v6_gamma_challenge() uses (evm: mut Evm) {
     // v6 VK first point: S1_X
     let mut t = Transcript::new()
     t = t.write_label(label: GAMMA_LABEL, label_len: 5)
@@ -1020,7 +1014,7 @@ fn test_v6_gamma_challenge() {
 }
 
 #[test]
-fn test_v6_all_challenges() {
+fn test_v6_all_challenges() uses (evm: mut Evm) {
     // Compute all 4 challenges for v6 and compare
     let gamma_raw: u256 = 0x86c4ac45a0be843cc24c65d9d559dd135a4ecad0f433372fa79f7979c9c6705c
 
@@ -1047,7 +1041,7 @@ fn test_v6_all_challenges() {
 }
 
 #[test]
-fn test_v6_zeta_challenge() {
+fn test_v6_zeta_challenge() uses (evm: mut Evm) {
     let alpha_raw: u256 = 0x8b4c0cc8930c7effedf6847ec5b115c7b78b3b9a74ff18c9fa4ead79e39e14dc
 
     // Zeta = SHA256("zeta" || alpha_raw || H0 || H1 || H2)
@@ -1068,7 +1062,7 @@ fn test_v6_zeta_challenge() {
 }
 
 #[test]
-fn test_v6_pi_computation() {
+fn test_v6_pi_computation() uses (evm: mut Evm) {
     let one: u256 = 1
     let zeta_raw: u256 = 0x9cfa5df065c8d2170b994be2f13f26328184096125b806282cc4482082fb210d
     let zeta = zeta_raw % F_Q
@@ -1159,7 +1153,7 @@ fn test_v6_const_lin() {
 }
 
 #[test]
-fn test_v6_verify_end_to_end() {
+fn test_v6_verify_end_to_end() uses (evm: mut Evm) {
     let vk = PlonkVK {
         n: 33554432,
         n_inv: 21888242219518804655518433051623070663413851959604507555939307129453691614729,

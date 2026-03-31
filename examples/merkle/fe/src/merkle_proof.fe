@@ -1,14 +1,15 @@
-use std::evm::crypto::{mstore, keccak256, calldataload}
+use std::evm::crypto::keccak256
+use std::evm::{Evm, RawMem, RawOps}
 
 /// Hash two u256 values, sorted so hash(a,b) == hash(b,a).
 /// This is the standard "sorted pair" Merkle hash used by OpenZeppelin.
-fn hash_sorted_pair(a: u256, b: u256, scratch: u256) -> u256 {
+fn hash_sorted_pair(a: u256, b: u256, scratch: u256) -> u256 uses (evm: mut Evm) {
     if a < b {
-        mstore(scratch, a)
-        mstore(scratch + 32, b)
+        evm.mstore(addr: scratch, value: a)
+        evm.mstore(addr: scratch + 32, value: b)
     } else {
-        mstore(scratch, b)
-        mstore(scratch + 32, a)
+        evm.mstore(addr: scratch, value: b)
+        evm.mstore(addr: scratch + 32, value: a)
     }
     keccak256(scratch, 64)
 }
@@ -17,12 +18,12 @@ fn hash_sorted_pair(a: u256, b: u256, scratch: u256) -> u256 {
 ///
 /// The depth is a compile-time parameter — passing a depth-7 proof to a
 /// depth-32 verifier is a type error. No separate `proof_len` needed.
-pub fn verify<const DEPTH: usize>(proof: [u256; DEPTH], root: u256, leaf: u256) -> bool {
+pub fn verify<const DEPTH: usize>(proof: [u256; DEPTH], root: u256, leaf: u256) -> bool uses (evm: mut Evm) {
     compute_root(proof, leaf) == root
 }
 
 /// Compute a Merkle root from a leaf and proof.
-pub fn compute_root<const DEPTH: usize>(proof: [u256; DEPTH], leaf: u256) -> u256 {
+pub fn compute_root<const DEPTH: usize>(proof: [u256; DEPTH], leaf: u256) -> u256 uses (evm: mut Evm) {
     let scratch = std::evm::alloc(64)
     let mut hash = leaf
     for i in 0..DEPTH {
@@ -32,20 +33,20 @@ pub fn compute_root<const DEPTH: usize>(proof: [u256; DEPTH], leaf: u256) -> u25
 }
 
 /// Compute root reading proof directly from calldata (zero-copy).
-pub fn compute_root_calldata(proof_offset: u256, proof_len: u256, leaf: u256) -> u256 {
+pub fn compute_root_calldata(proof_offset: u256, proof_len: u256, leaf: u256) -> u256 uses (evm: mut Evm) {
     let scratch = std::evm::alloc(64)
     let mut hash = leaf
     let mut offset = proof_offset
     let end = offset + proof_len * 32
 
     while offset < end {
-        hash = hash_sorted_pair(a: hash, b: calldataload(offset), scratch)
+        hash = hash_sorted_pair(a: hash, b: evm.calldataload(offset), scratch)
         offset = offset + 32
     }
     hash
 }
 
 /// Verify reading proof directly from calldata (zero-copy).
-pub fn verify_calldata(proof_offset: u256, proof_len: u256, root: u256, leaf: u256) -> bool {
+pub fn verify_calldata(proof_offset: u256, proof_len: u256, root: u256, leaf: u256) -> bool uses (evm: mut Evm) {
     compute_root_calldata(proof_offset, proof_len, leaf) == root
 }

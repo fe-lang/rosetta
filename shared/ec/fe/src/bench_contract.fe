@@ -15,14 +15,14 @@ pub contract BN254Bench {
     init() {}
     recv BN254Msg {
         EcAdd { ax, ay, bx, by } -> (u256, u256) {
-            let result = bn254::ec_add(
+            let result = bn254::g1_add(
                 a: G1Point { x: ax, y: ay },
                 b: G1Point { x: bx, y: by },
             )
             (result.x, result.y)
         }
         EcMul { px, py, s } -> (u256, u256) {
-            let result = bn254::ec_mul(
+            let result = bn254::g1_mul(
                 p: G1Point { x: px, y: py },
                 s,
             )

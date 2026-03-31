@@ -1,5 +1,5 @@
 use std::abi::sol
-use std::evm::crypto::calldataload
+use std::evm::{Evm, RawOps}
 use ec::bn254::{G1Point, G2Point}
 use super::plonk::{PlonkVK, PlonkProof, verify, debug_challenges}
 
@@ -33,33 +33,33 @@ fn example_vk() -> PlonkVK {
     }
 }
 
-fn parse_proof(proof_offset: u256) -> PlonkProof {
+fn parse_proof(proof_offset: u256) -> PlonkProof uses (evm: mut Evm) {
     PlonkProof {
         lro: [
-            G1Point { x: calldataload(proof_offset), y: calldataload(proof_offset + 0x20) },
-            G1Point { x: calldataload(proof_offset + 0x40), y: calldataload(proof_offset + 0x60) },
-            G1Point { x: calldataload(proof_offset + 0x80), y: calldataload(proof_offset + 0xa0) },
+            G1Point { x: evm.calldataload(proof_offset), y: evm.calldataload(proof_offset + 0x20) },
+            G1Point { x: evm.calldataload(proof_offset + 0x40), y: evm.calldataload(proof_offset + 0x60) },
+            G1Point { x: evm.calldataload(proof_offset + 0x80), y: evm.calldataload(proof_offset + 0xa0) },
         ],
-        z: G1Point { x: calldataload(proof_offset + 0x220), y: calldataload(proof_offset + 0x240) },
+        z: G1Point { x: evm.calldataload(proof_offset + 0x220), y: evm.calldataload(proof_offset + 0x240) },
         h: [
-            G1Point { x: calldataload(proof_offset + 0xc0), y: calldataload(proof_offset + 0xe0) },
-            G1Point { x: calldataload(proof_offset + 0x100), y: calldataload(proof_offset + 0x120) },
-            G1Point { x: calldataload(proof_offset + 0x140), y: calldataload(proof_offset + 0x160) },
+            G1Point { x: evm.calldataload(proof_offset + 0xc0), y: evm.calldataload(proof_offset + 0xe0) },
+            G1Point { x: evm.calldataload(proof_offset + 0x100), y: evm.calldataload(proof_offset + 0x120) },
+            G1Point { x: evm.calldataload(proof_offset + 0x140), y: evm.calldataload(proof_offset + 0x160) },
         ],
         bsb22_commitments: [
-            G1Point { x: calldataload(proof_offset + 0x320), y: calldataload(proof_offset + 0x340) },
+            G1Point { x: evm.calldataload(proof_offset + 0x320), y: evm.calldataload(proof_offset + 0x340) },
         ],
-        batched_h: G1Point { x: calldataload(proof_offset + 0x280), y: calldataload(proof_offset + 0x2a0) },
+        batched_h: G1Point { x: evm.calldataload(proof_offset + 0x280), y: evm.calldataload(proof_offset + 0x2a0) },
         claimed_values: [
-            calldataload(proof_offset + 0x180),
-            calldataload(proof_offset + 0x1a0),
-            calldataload(proof_offset + 0x1c0),
-            calldataload(proof_offset + 0x1e0),
-            calldataload(proof_offset + 0x200),
-            calldataload(proof_offset + 0x300),
+            evm.calldataload(proof_offset + 0x180),
+            evm.calldataload(proof_offset + 0x1a0),
+            evm.calldataload(proof_offset + 0x1c0),
+            evm.calldataload(proof_offset + 0x1e0),
+            evm.calldataload(proof_offset + 0x200),
+            evm.calldataload(proof_offset + 0x300),
         ],
-        z_shifted_h: G1Point { x: calldataload(proof_offset + 0x2c0), y: calldataload(proof_offset + 0x2e0) },
-        z_shifted_value: calldataload(proof_offset + 0x260),
+        z_shifted_h: G1Point { x: evm.calldataload(proof_offset + 0x2c0), y: evm.calldataload(proof_offset + 0x2e0) },
+        z_shifted_value: evm.calldataload(proof_offset + 0x260),
     }
 }
 
@@ -106,13 +106,13 @@ msg PlonkMsg {
 pub contract PlonkBench {
     init() {}
     recv PlonkMsg {
-        VerifyPlonkProof { pi0, pi1, pi2, pi3, pi4, proof_offset } -> bool {
+        VerifyPlonkProof { pi0, pi1, pi2, pi3, pi4, proof_offset } -> bool uses (evm: mut Evm) {
             let vk = example_vk()
             let pub_inputs: [u256; 5] = [pi0, pi1, pi2, pi3, pi4]
             let proof = parse_proof(proof_offset)
             verify(vk, proof, pub_inputs)
         }
-        DebugGamma { pi0, pi1, pi2, pi3, pi4, proof_offset } -> u256 {
+        DebugGamma { pi0, pi1, pi2, pi3, pi4, proof_offset } -> u256 uses (evm: mut Evm) {
             let vk = example_vk()
             let pub_inputs: [u256; 5] = [pi0, pi1, pi2, pi3, pi4]
             let proof = parse_proof(proof_offset)

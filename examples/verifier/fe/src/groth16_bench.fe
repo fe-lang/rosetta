@@ -1,4 +1,5 @@
 use std::abi::sol
+use std::evm::Evm
 use ec::bn254::{G1Point, G2Point}
 use super::groth16::{VerifyingKey, Proof, ScalarInput, verify}
 
@@ -72,7 +73,7 @@ msg Groth16Msg {
 pub contract Groth16Bench {
     init() {}
     recv Groth16Msg {
-        VerifyWithTestVectors { input } -> bool {
+        VerifyWithTestVectors { input } -> bool uses (evm: mut Evm) {
             let vk = test_vk()
             let proof = test_proof()
             verify(vk, proof, inputs: [ScalarInput::new(val: input)])

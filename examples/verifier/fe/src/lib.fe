@@ -5,5 +5,6 @@ pub use plonk::{self, *}
 pub use halo2::{self, *}
 // circuit module is incomplete — excluded for now
 // pub use circuit::{self, *}
-pub use groth16_bench::{self, *}
+// groth16 excluded — ec_pairing_4's 24 params exceed Sonatina's SWAP16 stack limit
+// pub use groth16_bench::{self, *}
 pub use plonk_bench::{self, *}
