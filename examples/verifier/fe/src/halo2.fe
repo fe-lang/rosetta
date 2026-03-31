@@ -188,7 +188,7 @@ pub fn kzg_accumulate(
 pub fn kzg_pairing_check(
     p: G1Point, q: G1Point,
     g2_srs: G2Point,
-) -> bool {
+) -> bool uses (evm: mut Evm) {
     // e(-P, [x]_2) * e(Q, G2_generator) == 1
     let neg_p = negate(p: p)
 

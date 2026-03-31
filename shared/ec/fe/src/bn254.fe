@@ -74,11 +74,11 @@ pub fn g1_mul(p: G1Point, s: u256) -> G1Point {
 pub fn pairing_2(
     a1: G1Point, b1: G2Point,
     a2: G1Point, b2: G2Point,
-) -> bool {
-    std::evm::crypto::ec_pairing_2(
-        a1.x, a1.y, b1.x_imag, b1.x_real, b1.y_imag, b1.y_real,
-        a2.x, a2.y, b2.x_imag, b2.x_real, b2.y_imag, b2.y_real,
-    )
+) -> bool uses (evm: mut Evm) {
+    let ptr = std::evm::alloc(384)
+    write_pair(ptr, a: a1, b: b1)
+    write_pair(ptr: ptr + 192, a: a2, b: b2)
+    std::evm::crypto::ec_pairing(ptr, 384)
 }
 
 /// Write a (G1, G2) pair to memory at the given offset.
@@ -108,5 +108,5 @@ pub fn pairing_4(
     write_pair(ptr: ptr + 384, a: a3, b: b3)
     write_pair(ptr: ptr + 576, a: a4, b: b4)
 
-    std::evm::crypto::ec_pairing_raw(ptr, 768)
+    std::evm::crypto::ec_pairing(ptr, 768)
 }
