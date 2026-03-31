@@ -1,19 +1,10 @@
 /// Token + Governance contract.
 ///
-/// Same state transitions as the Solidity EIP-2535 Diamond (Diamond.sol).
-/// The Solidity version needs ~370 lines of Diamond infrastructure
-/// (proxy, LibDiamond, facet routing, storage slot hashing, deployer
-/// wiring) before a single line of business logic. Fe needs zero.
-///
-/// Each handler's `uses` clause declares exactly which storage it
-/// touches and whether it reads or writes. No hidden globals.
+/// Equivalent to the Solidity EIP-2535 Diamond version in sol/.
 
 use std::abi::sol
 
 // ---- Messages ----
-// These ARE the interface. In Solidity, you need IDiamondCut,
-// IDiamondLoupe, IERC165, IERC173, plus the facet contracts.
-// In Fe, the msg type is the interface AND the dispatch table.
 
 msg TokenMsg {
     #[selector = sol("mint(address,uint256)")]
@@ -46,9 +37,6 @@ msg GovMsg {
 }
 
 // ---- Storage ----
-// In Solidity Diamond, each facet must manually hash a unique storage
-// slot and use assembly to load it. Miss a hash, get a collision.
-// In Fe, the compiler handles storage layout. No manual slots.
 
 struct TokenStore {
     total_supply: u256,
@@ -72,8 +60,6 @@ struct GovStore {
     delegated_weight: StorageMap<Address, u256>,
 }
 
-// Solidity Diamond puts owner in LibDiamond.DiamondStorage.
-// Fe makes ownership explicit storage, visible in `uses` clauses.
 struct OwnerStore {
     owner: Address,
 }
