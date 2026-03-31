@@ -16,20 +16,20 @@ pub contract BN254Bench {
     recv BN254Msg {
         EcAdd { ax, ay, bx, by } -> (u256, u256) {
             let result = bn254::ec_add(
-                G1Point { x: ax, y: ay },
-                G1Point { x: bx, y: by },
+                a: G1Point { x: ax, y: ay },
+                b: G1Point { x: bx, y: by },
             )
             (result.x, result.y)
         }
         EcMul { px, py, s } -> (u256, u256) {
             let result = bn254::ec_mul(
-                G1Point { x: px, y: py },
+                p: G1Point { x: px, y: py },
                 s,
             )
             (result.x, result.y)
         }
         Negate { px, py } -> (u256, u256) {
-            let result = bn254::negate(G1Point { x: px, y: py })
+            let result = bn254::negate(p: G1Point { x: px, y: py })
             (result.x, result.y)
         }
     }

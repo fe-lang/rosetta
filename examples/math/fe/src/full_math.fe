@@ -1,4 +1,4 @@
-use std::evm::ops
+use std::evm::crypto::{mulmod}
 
 /// 512-bit mulDiv: floor(a * b / denominator) with full precision.
 /// Semantically equivalent to Uniswap V3 FullMath.sol.
@@ -9,7 +9,7 @@ use std::evm::ops
 #[arithmetic(unchecked)]
 pub fn mul_div(a: u256, b: u256, denominator: u256) -> u256 {
     // 512-bit multiply [prod1 prod0] = a * b
-    let mm = ops::mulmod(a, b, 0 - 1)
+    let mm = mulmod(a, b, 0 - 1)
     let prod0 = a * b
     let prod1 = mm - prod0 - if mm < prod0 { 1 } else { 0 }
 
@@ -23,7 +23,7 @@ pub fn mul_div(a: u256, b: u256, denominator: u256) -> u256 {
     if denominator <= prod1 { assert(false) }
 
     // Subtract remainder to make division exact
-    let remainder = ops::mulmod(a, b, denominator)
+    let remainder = mulmod(a, b, denominator)
     let prod1 = prod1 - if remainder > prod0 { 1 } else { 0 }
     let prod0 = prod0 - remainder
 
@@ -52,7 +52,7 @@ pub fn mul_div(a: u256, b: u256, denominator: u256) -> u256 {
 #[arithmetic(unchecked)]
 pub fn mul_div_rounding_up(a: u256, b: u256, denominator: u256) -> u256 {
     let mut result = mul_div(a, b, denominator)
-    if ops::mulmod(a, b, denominator) > 0 {
+    if mulmod(a, b, denominator) > 0 {
         if result == 0 - 1 { assert(false) }
         result = result + 1
     }

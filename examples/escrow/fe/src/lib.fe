@@ -15,12 +15,22 @@ msg EscrowMsg {
     GetBalance -> u256,
 }
 
-/// Depends on: impl Eq for enum (currently missing in Fe).
 pub enum State {
     Empty,
     Funded,
     Released,
 }
+
+fn state_disc(s: State) -> u256 {
+    match s {
+        State::Empty => 0,
+        State::Funded => 1,
+        State::Released => 2,
+    }
+}
+
+fn is_empty(s: State) -> bool { state_disc(s) == 0 }
+fn is_funded(s: State) -> bool { state_disc(s) == 1 }
 
 struct EscrowStore {
     depositor: Address,
@@ -43,14 +53,14 @@ pub contract Escrow uses (ctx: Ctx) {
 
     recv EscrowMsg {
         Deposit uses (mut store, ctx) {
-            assert(store.state == State::Empty)
+            assert(is_empty(s: store.state))
             store.balance = ctx.value()
             store.state = State::Funded
         }
 
         Release -> u256 uses (mut store, ctx) {
             assert(ctx.caller() == store.arbiter)
-            assert(store.state == State::Funded)
+            assert(is_funded(s: store.state))
             store.state = State::Released
             let amount = store.balance
             store.balance = 0

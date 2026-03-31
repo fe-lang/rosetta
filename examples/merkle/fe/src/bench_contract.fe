@@ -13,10 +13,10 @@ pub contract MerkleProofBench {
     recv MerkleMsg {
         Verify { proof, proof_len, root, leaf } -> bool {
             // Read proof directly from calldata at offset 4 (after selector)
-            merkle_proof::verify_calldata(4, proof_len, root, leaf)
+            merkle_proof::verify_calldata(proof_offset: 4, proof_len, root, leaf)
         }
         ComputeRoot { proof, proof_len, leaf } -> u256 {
-            merkle_proof::compute_root_calldata(4, proof_len, leaf)
+            merkle_proof::compute_root_calldata(proof_offset: 4, proof_len, leaf)
         }
     }
 }

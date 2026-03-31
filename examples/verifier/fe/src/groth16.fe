@@ -1,5 +1,4 @@
 use ec::bn254::{G1Point, G2Point, negate, ec_pairing_4}
-use std::evm::ops
 
 /// Groth16 proof verification on BN254.
 /// Semantically equivalent to snarkJS's verifier_groth16.sol.ejs template.
@@ -27,14 +26,14 @@ impl ScalarInput {
     }
 }
 
-/// Verification key parameterized by public input count.
-/// Depends on: const arithmetic in array type position ([G1Point; N + 1]).
-pub struct VerifyingKey<const N: usize> {
+/// Verification key parameterized by public input count N and IC array size IC_LEN (= N + 1).
+/// Fe's const generics don't yet unify `N + 1` with literal integers, so we pass both.
+pub struct VerifyingKey<const N: usize, const IC_LEN: usize> {
     pub alpha1: G1Point,
     pub beta2: G2Point,
     pub gamma2: G2Point,
     pub delta2: G2Point,
-    pub ic: [G1Point; N + 1],
+    pub ic: [G1Point; IC_LEN],
 }
 
 pub struct Proof {
@@ -45,21 +44,21 @@ pub struct Proof {
 
 /// Verify a Groth16 proof with N public inputs.
 /// Inputs are validated on construction (ScalarInput::new asserts < SCALAR_FIELD).
-pub fn verify<const N: usize>(vk: VerifyingKey<N>, proof: Proof, inputs: [ScalarInput; N]) -> bool {
+pub fn verify<const N: usize, const IC_LEN: usize>(vk: VerifyingKey<N, IC_LEN>, proof: Proof, inputs: [ScalarInput; N]) -> bool {
     // Compute vk_x = IC[0] + sum(inputs[i] * IC[i+1])
     let mut vk_x = vk.ic[0]
     for i in 0..N {
-        vk_x = vk_x + vk.ic[i + 1].scale(inputs[i].val)
+        vk_x = vk_x + vk.ic[i + 1].scale(s: inputs[i].val)
     }
 
     // Negate proof.A for the pairing check
-    let neg_a = negate(proof.a)
+    let neg_a = negate(p: proof.a)
 
     // Pairing check: e(-A, B) * e(alpha, beta) * e(vk_x, gamma) * e(C, delta) == 1
     ec_pairing_4(
-        neg_a,    proof.b,
-        vk.alpha1, vk.beta2,
-        vk_x,     vk.gamma2,
-        proof.c,   vk.delta2,
+        a1: neg_a,    b1: proof.b,
+        a2: vk.alpha1, b2: vk.beta2,
+        a3: vk_x,     b3: vk.gamma2,
+        a4: proof.c,   b4: vk.delta2,
     )
 }

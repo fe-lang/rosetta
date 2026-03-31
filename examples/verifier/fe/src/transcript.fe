@@ -4,7 +4,7 @@ use super::field::F_Q
 /// Generic write method accepts any type that implements Writable.
 /// Raw memory operations are encapsulated — callers never touch mstore.
 
-use std::evm::ops
+use std::evm::crypto::{mstore, mload, raw_staticcall, gas}
 use ec::bn254::G1Point
 
 
@@ -16,14 +16,14 @@ pub trait Writable {
 
 impl Writable for u256 {
     fn byte_size(self) -> u256 { 32 }
-    fn write_to(self, ptr: u256) { ops::mstore(ptr, self) }
+    fn write_to(self, ptr: u256) { mstore(ptr, self) }
 }
 
 impl Writable for G1Point {
     fn byte_size(self) -> u256 { 64 }
     fn write_to(self, ptr: u256) {
-        ops::mstore(ptr, self.x)
-        ops::mstore(ptr + 32, self.y)
+        mstore(ptr, self.x)
+        mstore(ptr + 32, self.y)
     }
 }
 
@@ -40,25 +40,25 @@ impl Transcript {
     }
 
     pub fn write<T: Writable>(self, val: T) -> Transcript {
-        val.write_to(self.ptr + self.len)
+        val.write_to(ptr: self.ptr + self.len)
         Transcript { ptr: self.ptr, len: self.len + val.byte_size() }
     }
 
     pub fn write_label(self, label: u256, label_len: u256) -> Transcript {
-        ops::mstore(self.ptr + self.len, label)
+        mstore(self.ptr + self.len, label)
         Transcript { ptr: self.ptr, len: self.len + label_len }
     }
 
     // Convenience methods for common types.
     // These delegate to write<T> but provide a familiar API.
-    pub fn write_u256(self, val: u256) -> Transcript { self.write(val) }
-    pub fn write_g1(self, p: G1Point) -> Transcript { self.write(p) }
+    pub fn write_u256(self, val: u256) -> Transcript { self.write(val: val) }
+    pub fn write_g1(self, p: G1Point) -> Transcript { self.write(val: p) }
 
     pub fn squeeze(self) -> (u256, u256, Transcript) {
         let out = std::evm::alloc(32)
-        let ok = ops::staticcall(ops::gas(), 2, self.ptr, self.len, out, 32)
-        if ok == 0 { ops::revert(0, 0) }
-        let hash = ops::mload(out)
+        let ok = raw_staticcall(gas(), 2, self.ptr, self.len, out, 32)
+        if ok == 0 { std::evm::assert(false) }
+        let hash = mload(out)
         (hash % F_Q, hash, Transcript { ptr: self.ptr, len: 0 })
     }
 }

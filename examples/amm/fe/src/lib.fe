@@ -64,7 +64,7 @@ pub contract SimpleAmm uses (ctx: Ctx, log: mut Log) {
         }
 
         SwapAForB { amount_in } -> u256 uses (mut store, mut log) {
-            let amount_out = swap_amount(store.reserve_a, store.reserve_b, amount_in)
+            let amount_out = swap_amount(reserve_in: store.reserve_a, reserve_out: store.reserve_b, amount_in)
             if amount_out == 0 { return 0 }
             store.reserve_a += amount_in
             store.reserve_b -= amount_out
@@ -73,7 +73,7 @@ pub contract SimpleAmm uses (ctx: Ctx, log: mut Log) {
         }
 
         SwapBForA { amount_in } -> u256 uses (mut store, mut log) {
-            let amount_out = swap_amount(store.reserve_b, store.reserve_a, amount_in)
+            let amount_out = swap_amount(reserve_in: store.reserve_b, reserve_out: store.reserve_a, amount_in)
             if amount_out == 0 { return 0 }
             store.reserve_b += amount_in
             store.reserve_a -= amount_out

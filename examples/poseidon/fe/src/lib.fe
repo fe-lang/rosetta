@@ -16,53 +16,53 @@ pub use fp::Fp
 /// Depends on: returning [Fp; 3] from a function (sonatina#227).
 fn mds(s0: Fp, s1: Fp, s2: Fp, mat: [[u256; 3]; 3]) -> (Fp, Fp, Fp) {
     (
-        Fp::new(mat[0][0]) * s0 + Fp::new(mat[1][0]) * s1 + Fp::new(mat[2][0]) * s2,
-        Fp::new(mat[0][1]) * s0 + Fp::new(mat[1][1]) * s1 + Fp::new(mat[2][1]) * s2,
-        Fp::new(mat[0][2]) * s0 + Fp::new(mat[1][2]) * s1 + Fp::new(mat[2][2]) * s2,
+        Fp::new(val: mat[0][0]) * s0 + Fp::new(val: mat[1][0]) * s1 + Fp::new(val: mat[2][0]) * s2,
+        Fp::new(val: mat[0][1]) * s0 + Fp::new(val: mat[1][1]) * s1 + Fp::new(val: mat[2][1]) * s2,
+        Fp::new(val: mat[0][2]) * s0 + Fp::new(val: mat[1][2]) * s1 + Fp::new(val: mat[2][2]) * s2,
     )
 }
 
 /// Full S-box round: pow5 + add round constants + MDS mix.
 fn full_round(s0: Fp, s1: Fp, s2: Fp, rc: usize, mat: [[u256; 3]; 3]) -> (Fp, Fp, Fp) {
-    let s0 = s0.pow5() + Fp::new(C[rc])
-    let s1 = s1.pow5() + Fp::new(C[rc + 1])
-    let s2 = s2.pow5() + Fp::new(C[rc + 2])
+    let s0 = s0.pow5() + Fp::new(val: C[rc])
+    let s1 = s1.pow5() + Fp::new(val: C[rc + 1])
+    let s2 = s2.pow5() + Fp::new(val: C[rc + 2])
     mds(s0, s1, s2, mat)
 }
 
 /// Poseidon hash of two field elements.
 pub fn hash(a: u256, b: u256) -> u256 {
-    let mut s0 = Fp::new(0) + Fp::new(C[0])
-    let mut s1 = Fp::new(a) + Fp::new(C[1])
-    let mut s2 = Fp::new(b) + Fp::new(C[2])
+    let mut s0 = Fp::new(val: 0) + Fp::new(val: C[0])
+    let mut s1 = Fp::new(val: a) + Fp::new(val: C[1])
+    let mut s2 = Fp::new(val: b) + Fp::new(val: C[2])
 
     // First half full rounds
     for r in 0..N_ROUNDS_F / 2 - 1 {
-        let (r0, r1, r2) = full_round(s0, s1, s2, (r + 1) * 3, M)
+        let (r0, r1, r2) = full_round(s0, s1, s2, rc: (r + 1) * 3, mat: M)
         s0 = r0
         s1 = r1
         s2 = r2
     }
 
     // Pre-sparse round (uses P_MAT instead of M)
-    let (r0, r1, r2) = full_round(s0, s1, s2, (N_ROUNDS_F / 2) * 3, P_MAT)
+    let (r0, r1, r2) = full_round(s0, s1, s2, rc: (N_ROUNDS_F / 2) * 3, mat: P_MAT)
     s0 = r0
     s1 = r1
     s2 = r2
 
     // Partial rounds (S-box on first element only, sparse matrix)
     for r in 0..N_ROUNDS_P {
-        s0 = s0.pow5() + Fp::new(C[(N_ROUNDS_F / 2 + 1) * 3 + r])
+        s0 = s0.pow5() + Fp::new(val: C[(N_ROUNDS_F / 2 + 1) * 3 + r])
         let off: usize = 5 * r
-        let new_s0 = Fp::new(S[off]) * s0 + Fp::new(S[off + 1]) * s1 + Fp::new(S[off + 2]) * s2
-        s1 = s1 + s0 * Fp::new(S[off + 3])
-        s2 = s2 + s0 * Fp::new(S[off + 4])
+        let new_s0 = Fp::new(val: S[off]) * s0 + Fp::new(val: S[off + 1]) * s1 + Fp::new(val: S[off + 2]) * s2
+        s1 = s1 + s0 * Fp::new(val: S[off + 3])
+        s2 = s2 + s0 * Fp::new(val: S[off + 4])
         s0 = new_s0
     }
 
     // Second half full rounds
     for r in 0..N_ROUNDS_F / 2 - 1 {
-        let (r0, r1, r2) = full_round(s0, s1, s2, (N_ROUNDS_F / 2 + 1) * 3 + N_ROUNDS_P + r * 3, M)
+        let (r0, r1, r2) = full_round(s0, s1, s2, rc: (N_ROUNDS_F / 2 + 1) * 3 + N_ROUNDS_P + r * 3, mat: M)
         s0 = r0
         s1 = r1
         s2 = r2
@@ -72,7 +72,7 @@ pub fn hash(a: u256, b: u256) -> u256 {
     let s0 = s0.pow5()
     let s1 = s1.pow5()
     let s2 = s2.pow5()
-    let (out, _, _) = mds(s0, s1, s2, M)
+    let (out, _, _) = mds(s0, s1, s2, mat: M)
     out.val
 }
 

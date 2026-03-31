@@ -1,16 +1,16 @@
-use std::evm::ops
+use std::evm::crypto::{mstore, keccak256, calldataload}
 
 /// Hash two u256 values, sorted so hash(a,b) == hash(b,a).
 /// This is the standard "sorted pair" Merkle hash used by OpenZeppelin.
 fn hash_sorted_pair(a: u256, b: u256, scratch: u256) -> u256 {
     if a < b {
-        ops::mstore(scratch, a)
-        ops::mstore(scratch + 32, b)
+        mstore(scratch, a)
+        mstore(scratch + 32, b)
     } else {
-        ops::mstore(scratch, b)
-        ops::mstore(scratch + 32, a)
+        mstore(scratch, b)
+        mstore(scratch + 32, a)
     }
-    ops::keccak256(scratch, 64)
+    keccak256(scratch, 64)
 }
 
 /// Verify a Merkle proof with const-generic depth.
@@ -26,7 +26,7 @@ pub fn compute_root<const DEPTH: usize>(proof: [u256; DEPTH], leaf: u256) -> u25
     let scratch = std::evm::alloc(64)
     let mut hash = leaf
     for i in 0..DEPTH {
-        hash = hash_sorted_pair(hash, proof[i], scratch)
+        hash = hash_sorted_pair(a: hash, b: proof[i], scratch)
     }
     hash
 }
@@ -39,7 +39,7 @@ pub fn compute_root_calldata(proof_offset: u256, proof_len: u256, leaf: u256) ->
     let end = offset + proof_len * 32
 
     while offset < end {
-        hash = hash_sorted_pair(hash, ops::calldataload(offset), scratch)
+        hash = hash_sorted_pair(a: hash, b: calldataload(offset), scratch)
         offset = offset + 32
     }
     hash

@@ -3,7 +3,7 @@ use super::field
 use super::msm
 use super::field::F_Q
 use super::transcript::Transcript
-use std::evm::ops
+use std::evm::crypto::{mstore, mstore8, mload, raw_staticcall, gas, addmod, mulmod}
 
 /// Plonk proof verification on BN254.
 /// Ported from SP1's Rust verifier (crates/verifier/src/plonk/).
@@ -59,90 +59,90 @@ const HASH_FR_LEN_IN_BYTES: u256 = 48  // 0x30
 const HASH_FR_SIZE_DOMAIN: u256 = 11   // length of "BSB22-Plonk"
 const HASH_FR_BB: u256 = 340282366920938463463374607431768211456 // 2^128
 
-fn hash_fr(x: u256, y: u256) -> u256 {
+fn hash_fr(_ x: u256, _ y: u256) -> u256 {
     let ptr = std::evm::alloc(256)
 
     // Round 0: SHA256(zeros64 || x || y || 0x00 || 0x30 || 0x00 || "BSB22-Plonk" || 0x0b)
-    ops::mstore(ptr, 0)           // 32 zero bytes
-    ops::mstore(ptr + 32, 0)      // 32 zero bytes
-    ops::mstore(ptr + 64, x)
-    ops::mstore(ptr + 96, y)
-    ops::mstore8(ptr + 128, 0)
-    ops::mstore8(ptr + 129, 48)   // HASH_FR_LEN_IN_BYTES
-    ops::mstore8(ptr + 130, 0)
+    mstore(ptr, 0)           // 32 zero bytes
+    mstore(ptr + 32, 0)      // 32 zero bytes
+    mstore(ptr + 64, x)
+    mstore(ptr + 96, y)
+    mstore8(ptr + 128, 0)
+    mstore8(ptr + 129, 48)   // HASH_FR_LEN_IN_BYTES
+    mstore8(ptr + 130, 0)
     // "BSB22-Plonk" = 42 53 42 32 32 2d 50 6c 6f 6e 6b
-    ops::mstore8(ptr + 131, 0x42)
-    ops::mstore8(ptr + 132, 0x53)
-    ops::mstore8(ptr + 133, 0x42)
-    ops::mstore8(ptr + 134, 0x32)
-    ops::mstore8(ptr + 135, 0x32)
-    ops::mstore8(ptr + 136, 0x2d)
-    ops::mstore8(ptr + 137, 0x50)
-    ops::mstore8(ptr + 138, 0x6c)
-    ops::mstore8(ptr + 139, 0x6f)
-    ops::mstore8(ptr + 140, 0x6e)
-    ops::mstore8(ptr + 141, 0x6b)
-    ops::mstore8(ptr + 142, 11)   // HASH_FR_SIZE_DOMAIN
+    mstore8(ptr + 131, 0x42)
+    mstore8(ptr + 132, 0x53)
+    mstore8(ptr + 133, 0x42)
+    mstore8(ptr + 134, 0x32)
+    mstore8(ptr + 135, 0x32)
+    mstore8(ptr + 136, 0x2d)
+    mstore8(ptr + 137, 0x50)
+    mstore8(ptr + 138, 0x6c)
+    mstore8(ptr + 139, 0x6f)
+    mstore8(ptr + 140, 0x6e)
+    mstore8(ptr + 141, 0x6b)
+    mstore8(ptr + 142, 11)   // HASH_FR_SIZE_DOMAIN
 
-    let success = ops::staticcall(ops::gas(), 2, ptr, 143, ptr, 32)
-    if success == 0 { ops::revert(0, 0) }
-    let b0 = ops::mload(ptr)
+    let success = raw_staticcall(gas(), 2, ptr, 143, ptr, 32)
+    if success == 0 { std::evm::assert(false) }
+    let b0 = mload(ptr)
 
     // Round 1: SHA256(b0 || 0x01 || "BSB22-Plonk" || 0x0b)
     // b0 is already at ptr (32 bytes)
-    ops::mstore8(ptr + 32, 1)  // HASH_FR_ONE
-    ops::mstore8(ptr + 33, 0x42)
-    ops::mstore8(ptr + 34, 0x53)
-    ops::mstore8(ptr + 35, 0x42)
-    ops::mstore8(ptr + 36, 0x32)
-    ops::mstore8(ptr + 37, 0x32)
-    ops::mstore8(ptr + 38, 0x2d)
-    ops::mstore8(ptr + 39, 0x50)
-    ops::mstore8(ptr + 40, 0x6c)
-    ops::mstore8(ptr + 41, 0x6f)
-    ops::mstore8(ptr + 42, 0x6e)
-    ops::mstore8(ptr + 43, 0x6b)
-    ops::mstore8(ptr + 44, 11)
+    mstore8(ptr + 32, 1)  // HASH_FR_ONE
+    mstore8(ptr + 33, 0x42)
+    mstore8(ptr + 34, 0x53)
+    mstore8(ptr + 35, 0x42)
+    mstore8(ptr + 36, 0x32)
+    mstore8(ptr + 37, 0x32)
+    mstore8(ptr + 38, 0x2d)
+    mstore8(ptr + 39, 0x50)
+    mstore8(ptr + 40, 0x6c)
+    mstore8(ptr + 41, 0x6f)
+    mstore8(ptr + 42, 0x6e)
+    mstore8(ptr + 43, 0x6b)
+    mstore8(ptr + 44, 11)
 
-    let success = ops::staticcall(ops::gas(), 2, ptr, 45, ptr, 32)
-    if success == 0 { ops::revert(0, 0) }
-    let b1 = ops::mload(ptr)
+    let success = raw_staticcall(gas(), 2, ptr, 45, ptr, 32)
+    if success == 0 { std::evm::assert(false) }
+    let b1 = mload(ptr)
 
     // Round 2: SHA256((b0 ^ b1) || 0x02 || "BSB22-Plonk" || 0x0b)
-    ops::mstore(ptr + 32, b0 ^ b1)  // xor at offset 32
-    ops::mstore8(ptr + 64, 2)       // HASH_FR_TWO
-    ops::mstore8(ptr + 65, 0x42)
-    ops::mstore8(ptr + 66, 0x53)
-    ops::mstore8(ptr + 67, 0x42)
-    ops::mstore8(ptr + 68, 0x32)
-    ops::mstore8(ptr + 69, 0x32)
-    ops::mstore8(ptr + 70, 0x2d)
-    ops::mstore8(ptr + 71, 0x50)
-    ops::mstore8(ptr + 72, 0x6c)
-    ops::mstore8(ptr + 73, 0x6f)
-    ops::mstore8(ptr + 74, 0x6e)
-    ops::mstore8(ptr + 75, 0x6b)
-    ops::mstore8(ptr + 76, 11)
+    mstore(ptr + 32, b0 ^ b1)  // xor at offset 32
+    mstore8(ptr + 64, 2)       // HASH_FR_TWO
+    mstore8(ptr + 65, 0x42)
+    mstore8(ptr + 66, 0x53)
+    mstore8(ptr + 67, 0x42)
+    mstore8(ptr + 68, 0x32)
+    mstore8(ptr + 69, 0x32)
+    mstore8(ptr + 70, 0x2d)
+    mstore8(ptr + 71, 0x50)
+    mstore8(ptr + 72, 0x6c)
+    mstore8(ptr + 73, 0x6f)
+    mstore8(ptr + 74, 0x6e)
+    mstore8(ptr + 75, 0x6b)
+    mstore8(ptr + 76, 11)
 
     // Hash from offset 32, length 45
-    let success = ops::staticcall(ops::gas(), 2, ptr + 32, 45, ptr + 32, 32)
-    if success == 0 { ops::revert(0, 0) }
+    let success = raw_staticcall(gas(), 2, ptr + 32, 45, ptr + 32, 32)
+    if success == 0 { std::evm::assert(false) }
 
     // Result: 2^128 * b1 + b2[:16] mod R
-    let b2_high = ops::mload(ptr + 32) >> 128  // top 16 bytes of b2
-    ops::addmod(ops::mulmod(b1, HASH_FR_BB, F_Q), b2_high, F_Q)
+    let b2_high = mload(ptr + 32) >> 128  // top 16 bytes of b2
+    addmod(mulmod(b1, HASH_FR_BB, F_Q), b2_high, F_Q)
 }
 
 // --- Core verification ---
 
 /// Compute zeta^n (modular exponentiation via field::exp)
-fn pow_mod(base: u256, exp: u256) -> u256 {
+fn pow_mod(_ base: u256, _ exp: u256) -> u256 {
     field::exp<F_Q>(base, exp)
 }
 
 /// Batch invert: given [a0, a1, ...], return [1/a0, 1/a1, ...] using Montgomery's trick.
 /// Uses n-1 multiplications + 1 inversion instead of n inversions.
-fn batch_invert_2(a: u256, b: u256) -> (u256, u256) {
+fn batch_invert_2(_ a: u256, _ b: u256) -> (u256, u256) {
     let prod = field::mul<F_Q>(a, b)
     let prod_inv = field::inv<F_Q>(prod)
     let a_inv = field::mul<F_Q>(prod_inv, b)
@@ -159,44 +159,44 @@ pub fn debug_challenges(
     let mut t = Transcript::new()
 
     // gamma
-    t = t.write_label(GAMMA_LABEL, 5)
-    t = t.write_g1(vk.s[0])
-    t = t.write_g1(vk.s[1])
-    t = t.write_g1(vk.s[2])
-    t = t.write_g1(vk.ql)
-    t = t.write_g1(vk.qr)
-    t = t.write_g1(vk.qm)
-    t = t.write_g1(vk.qo)
-    t = t.write_g1(vk.qk)
-    t = t.write_g1(vk.qcp[0])
+    t = t.write_label(label: GAMMA_LABEL, label_len: 5)
+    t = t.write_g1(p:vk.s[0])
+    t = t.write_g1(p:vk.s[1])
+    t = t.write_g1(p:vk.s[2])
+    t = t.write_g1(p:vk.ql)
+    t = t.write_g1(p:vk.qr)
+    t = t.write_g1(p:vk.qm)
+    t = t.write_g1(p:vk.qo)
+    t = t.write_g1(p:vk.qk)
+    t = t.write_g1(p:vk.qcp[0])
     let mut pi_idx: usize = 0
     while pi_idx < 5 {
-        t = t.write_u256(pub_inputs[pi_idx])
+        t = t.write_u256(val:pub_inputs[pi_idx])
         pi_idx = pi_idx + 1
     }
-    t = t.write_g1(proof.lro[0])
-    t = t.write_g1(proof.lro[1])
-    t = t.write_g1(proof.lro[2])
+    t = t.write_g1(p:proof.lro[0])
+    t = t.write_g1(p:proof.lro[1])
+    t = t.write_g1(p:proof.lro[2])
     let (_, gamma_raw, mut t) = t.squeeze()
 
     // beta
-    t = t.write_label(BETA_LABEL, 4)
-    t = t.write_u256(gamma_raw)
+    t = t.write_label(label: BETA_LABEL, label_len: 4)
+    t = t.write_u256(val:gamma_raw)
     let (_, beta_raw, mut t) = t.squeeze()
 
     // alpha
-    t = t.write_label(ALPHA_LABEL, 5)
-    t = t.write_u256(beta_raw)
-    t = t.write_g1(proof.bsb22_commitments[0])
-    t = t.write_g1(proof.z)
+    t = t.write_label(label: ALPHA_LABEL, label_len: 5)
+    t = t.write_u256(val:beta_raw)
+    t = t.write_g1(p:proof.bsb22_commitments[0])
+    t = t.write_g1(p:proof.z)
     let (_, alpha_raw, mut t) = t.squeeze()
 
     // zeta
-    t = t.write_label(ZETA_LABEL, 4)
-    t = t.write_u256(alpha_raw)
-    t = t.write_g1(proof.h[0])
-    t = t.write_g1(proof.h[1])
-    t = t.write_g1(proof.h[2])
+    t = t.write_label(label: ZETA_LABEL, label_len: 4)
+    t = t.write_u256(val:alpha_raw)
+    t = t.write_g1(p:proof.h[0])
+    t = t.write_g1(p:proof.h[1])
+    t = t.write_g1(p:proof.h[2])
     let (_, zeta_raw, t) = t.squeeze()
 
     (gamma_raw, beta_raw, alpha_raw, zeta_raw)
@@ -210,38 +210,38 @@ pub fn debug_pi(
     let one: u256 = 1
     // Reuse the challenge derivation from verify
     let mut t = Transcript::new()
-    t = t.write_label(GAMMA_LABEL, 5)
-    t = t.write_g1(vk.s[0])
-    t = t.write_g1(vk.s[1])
-    t = t.write_g1(vk.s[2])
-    t = t.write_g1(vk.ql)
-    t = t.write_g1(vk.qr)
-    t = t.write_g1(vk.qm)
-    t = t.write_g1(vk.qo)
-    t = t.write_g1(vk.qk)
-    t = t.write_g1(vk.qcp[0])
+    t = t.write_label(label: GAMMA_LABEL, label_len: 5)
+    t = t.write_g1(p:vk.s[0])
+    t = t.write_g1(p:vk.s[1])
+    t = t.write_g1(p:vk.s[2])
+    t = t.write_g1(p:vk.ql)
+    t = t.write_g1(p:vk.qr)
+    t = t.write_g1(p:vk.qm)
+    t = t.write_g1(p:vk.qo)
+    t = t.write_g1(p:vk.qk)
+    t = t.write_g1(p:vk.qcp[0])
     let mut pi_idx: usize = 0
     while pi_idx < 5 {
-        t = t.write_u256(pub_inputs[pi_idx])
+        t = t.write_u256(val:pub_inputs[pi_idx])
         pi_idx = pi_idx + 1
     }
-    t = t.write_g1(proof.lro[0])
-    t = t.write_g1(proof.lro[1])
-    t = t.write_g1(proof.lro[2])
+    t = t.write_g1(p:proof.lro[0])
+    t = t.write_g1(p:proof.lro[1])
+    t = t.write_g1(p:proof.lro[2])
     let (gamma, gamma_raw, mut t) = t.squeeze()
-    t = t.write_label(BETA_LABEL, 4)
-    t = t.write_u256(gamma_raw)
+    t = t.write_label(label: BETA_LABEL, label_len: 4)
+    t = t.write_u256(val:gamma_raw)
     let (beta, beta_raw, mut t) = t.squeeze()
-    t = t.write_label(ALPHA_LABEL, 5)
-    t = t.write_u256(beta_raw)
-    t = t.write_g1(proof.bsb22_commitments[0])
-    t = t.write_g1(proof.z)
+    t = t.write_label(label: ALPHA_LABEL, label_len: 5)
+    t = t.write_u256(val:beta_raw)
+    t = t.write_g1(p:proof.bsb22_commitments[0])
+    t = t.write_g1(p:proof.z)
     let (alpha, alpha_raw, mut t) = t.squeeze()
-    t = t.write_label(ZETA_LABEL, 4)
-    t = t.write_u256(alpha_raw)
-    t = t.write_g1(proof.h[0])
-    t = t.write_g1(proof.h[1])
-    t = t.write_g1(proof.h[2])
+    t = t.write_label(label: ZETA_LABEL, label_len: 4)
+    t = t.write_u256(val:alpha_raw)
+    t = t.write_g1(p:proof.h[0])
+    t = t.write_g1(p:proof.h[1])
+    t = t.write_g1(p:proof.h[2])
     let (zeta, zeta_raw, _) = t.squeeze()
 
     // Compute PI
@@ -290,45 +290,45 @@ pub fn verify(
 
     // gamma: bind VK public data + public inputs, then commit wire polys
     // Hash("gamma" || s1 || s2 || s3 || ql || qr || qm || qo || qk || qcp[0] || pub_inputs || [L] || [R] || [O])
-    t = t.write_label(GAMMA_LABEL, 5) // "gamma"
-    t = t.write_g1(vk.s[0])
-    t = t.write_g1(vk.s[1])
-    t = t.write_g1(vk.s[2])
-    t = t.write_g1(vk.ql)
-    t = t.write_g1(vk.qr)
-    t = t.write_g1(vk.qm)
-    t = t.write_g1(vk.qo)
-    t = t.write_g1(vk.qk)
-    t = t.write_g1(vk.qcp[0])
+    t = t.write_label(label: GAMMA_LABEL, label_len: 5) // "gamma"
+    t = t.write_g1(p:vk.s[0])
+    t = t.write_g1(p:vk.s[1])
+    t = t.write_g1(p:vk.s[2])
+    t = t.write_g1(p:vk.ql)
+    t = t.write_g1(p:vk.qr)
+    t = t.write_g1(p:vk.qm)
+    t = t.write_g1(p:vk.qo)
+    t = t.write_g1(p:vk.qk)
+    t = t.write_g1(p:vk.qcp[0])
     let mut pi_idx: usize = 0
     while pi_idx < 5 {
-        t = t.write_u256(pub_inputs[pi_idx])
+        t = t.write_u256(val:pub_inputs[pi_idx])
         pi_idx = pi_idx + 1
     }
-    t = t.write_g1(proof.lro[0])
-    t = t.write_g1(proof.lro[1])
-    t = t.write_g1(proof.lro[2])
+    t = t.write_g1(p:proof.lro[0])
+    t = t.write_g1(p:proof.lro[1])
+    t = t.write_g1(p:proof.lro[2])
     let (gamma, gamma_raw, mut t) = t.squeeze()
 
     // beta: SHA256("beta" || gamma_raw_hash)
     // Note: gnark chains the RAW 32-byte hash, not the reduced field element
-    t = t.write_label(BETA_LABEL, 4) // "beta"
-    t = t.write_u256(gamma_raw)
+    t = t.write_label(label: BETA_LABEL, label_len: 4) // "beta"
+    t = t.write_u256(val:gamma_raw)
     let (beta, beta_raw, mut t) = t.squeeze()
 
     // alpha: SHA256("alpha" || beta_raw_hash || bsb22_commitments || Z)
-    t = t.write_label(ALPHA_LABEL, 5) // "alpha"
-    t = t.write_u256(beta_raw)
-    t = t.write_g1(proof.bsb22_commitments[0])
-    t = t.write_g1(proof.z)
+    t = t.write_label(label: ALPHA_LABEL, label_len: 5) // "alpha"
+    t = t.write_u256(val:beta_raw)
+    t = t.write_g1(p:proof.bsb22_commitments[0])
+    t = t.write_g1(p:proof.z)
     let (alpha, alpha_raw, mut t) = t.squeeze()
 
     // zeta: SHA256("zeta" || alpha_raw_hash || H0 || H1 || H2)
-    t = t.write_label(ZETA_LABEL, 4) // "zeta"
-    t = t.write_u256(alpha_raw)
-    t = t.write_g1(proof.h[0])
-    t = t.write_g1(proof.h[1])
-    t = t.write_g1(proof.h[2])
+    t = t.write_label(label: ZETA_LABEL, label_len: 4) // "zeta"
+    t = t.write_u256(val:alpha_raw)
+    t = t.write_g1(p:proof.h[0])
+    t = t.write_g1(p:proof.h[1])
+    t = t.write_g1(p:proof.h[2])
     let (zeta, zeta_raw, _) = t.squeeze()
 
     // --- 2. Compute zeta^n - 1 and L1(zeta) ---
@@ -443,26 +443,26 @@ pub fn verify(
 
     // Derive gamma_kzg for folding
     let mut t2 = Transcript::new()
-    t2 = t2.write_label(0x67616d6d61000000000000000000000000000000000000000000000000000000, 5) // "gamma"
-    t2 = t2.write_u256(zeta)
+    t2 = t2.write_label(label: 0x67616d6d61000000000000000000000000000000000000000000000000000000, label_len: 5) // "gamma"
+    t2 = t2.write_u256(val:zeta)
     // Write all 7 digests
-    t2 = t2.write_g1(linearized)
-    t2 = t2.write_g1(proof.lro[0])
-    t2 = t2.write_g1(proof.lro[1])
-    t2 = t2.write_g1(proof.lro[2])
-    t2 = t2.write_g1(vk.s[0])
-    t2 = t2.write_g1(vk.s[1])
-    t2 = t2.write_g1(vk.qcp[0])
+    t2 = t2.write_g1(p:linearized)
+    t2 = t2.write_g1(p:proof.lro[0])
+    t2 = t2.write_g1(p:proof.lro[1])
+    t2 = t2.write_g1(p:proof.lro[2])
+    t2 = t2.write_g1(p:vk.s[0])
+    t2 = t2.write_g1(p:vk.s[1])
+    t2 = t2.write_g1(p:vk.qcp[0])
     // Write all 7 claimed values
-    t2 = t2.write_u256(const_lin)
-    t2 = t2.write_u256(l)
-    t2 = t2.write_u256(r)
-    t2 = t2.write_u256(o)
-    t2 = t2.write_u256(s1)
-    t2 = t2.write_u256(s2)
-    t2 = t2.write_u256(qc_val)
+    t2 = t2.write_u256(val:const_lin)
+    t2 = t2.write_u256(val:l)
+    t2 = t2.write_u256(val:r)
+    t2 = t2.write_u256(val:o)
+    t2 = t2.write_u256(val:s1)
+    t2 = t2.write_u256(val:s2)
+    t2 = t2.write_u256(val:qc_val)
     // Write zu (data transcript)
-    t2 = t2.write_u256(zu)
+    t2 = t2.write_u256(val:zu)
     let (gamma_kzg, _, _) = t2.squeeze()
     // gamma_kzg raw hash not needed (separate transcript)
 
@@ -501,15 +501,15 @@ pub fn verify(
     // then derive_randomness(fs, "u", [folded_digest, Z, batched_h, z_shifted_h])
     // computes SHA256("u" || zeta_raw_hash || gamma_kzg || folded_digest || Z || batched_h || z_shifted_h)
     let mut t3 = Transcript::new()
-    t3 = t3.write_label(0x7500000000000000000000000000000000000000000000000000000000000000, 1) // "u"
-    t3 = t3.write_u256(zeta_raw) // chain from previous challenge (zeta's raw hash)
+    t3 = t3.write_label(label: 0x7500000000000000000000000000000000000000000000000000000000000000, label_len: 1) // "u"
+    t3 = t3.write_u256(val:zeta_raw) // chain from previous challenge (zeta's raw hash)
     // gamma_kzg bound to "u" challenge by fold_proof
-    t3 = t3.write_u256(gamma_kzg)
+    t3 = t3.write_u256(val:gamma_kzg)
     // derive_randomness binds these points
-    t3 = t3.write_g1(folded_digest)
-    t3 = t3.write_g1(proof.z)
-    t3 = t3.write_g1(proof.batched_h)
-    t3 = t3.write_g1(proof.z_shifted_h)
+    t3 = t3.write_g1(p:folded_digest)
+    t3 = t3.write_g1(p:proof.z)
+    t3 = t3.write_g1(p:proof.batched_h)
+    t3 = t3.write_g1(p:proof.z_shifted_h)
     let (u_challenge, _, _) = t3.squeeze()
 
     // --- 10. KZG batch verification ---
@@ -518,30 +518,30 @@ pub fn verify(
     let shifted_zeta = field::mul<F_Q>(zeta, vk.omega)
 
     // folded_quotients = batched_h + u * z_shifted_h
-    let folded_quotients = ec_add(proof.batched_h, ec_mul(proof.z_shifted_h, u_challenge))
+    let folded_quotients = ec_add(a: proof.batched_h, b: ec_mul(p: proof.z_shifted_h, s: u_challenge))
 
     // folded_digests = folded_digest + u * proof.z
     //               - folded_eval_commit
     //               + zeta * batched_h + u * shifted_zeta * z_shifted_h
-    let folded_evals_commit = ec_mul(vk.g1_srs, field::add<F_Q>(folded_eval, field::mul<F_Q>(u_challenge, zu)))
+    let folded_evals_commit = ec_mul(p: vk.g1_srs, s: field::add<F_Q>(folded_eval, field::mul<F_Q>(u_challenge, zu)))
 
     let point_term = ec_add(
-        ec_mul(proof.batched_h, zeta),
-        ec_mul(proof.z_shifted_h, field::mul<F_Q>(u_challenge, shifted_zeta))
+        a: ec_mul(p: proof.batched_h, s: zeta),
+        b: ec_mul(p: proof.z_shifted_h, s: field::mul<F_Q>(u_challenge, shifted_zeta))
     )
 
     let lhs = ec_add(
-        ec_add(
-            ec_add(folded_digest, ec_mul(proof.z, u_challenge)),
-            negate(folded_evals_commit)
+        a: ec_add(
+            a: ec_add(a: folded_digest, b: ec_mul(p: proof.z, s: u_challenge)),
+            b: negate(p: folded_evals_commit)
         ),
-        point_term
+        b: point_term
     )
 
-    let neg_quotients = negate(folded_quotients)
+    let neg_quotients = negate(p: folded_quotients)
 
     // Pairing check: e(lhs, G2) * e(-folded_quotients, [alpha]G2) == 1
-    ec_pairing_2(lhs, vk.g2_srs[0], neg_quotients, vk.g2_srs[1])
+    ec_pairing_2(a1: lhs, b1: vk.g2_srs[0], a2: neg_quotients, b2: vk.g2_srs[1])
 }
 
 // -----------------------------------------------------------------------
@@ -582,7 +582,7 @@ fn test_transcript_gamma() {
     // Test that the transcript produces the correct gamma hash.
     // This uses the hardcoded VK from plonk_bench and known proof data.
     let mut t = Transcript::new()
-    t = t.write_label(GAMMA_LABEL, 5)
+    t = t.write_label(label: GAMMA_LABEL, label_len: 5)
     // Just hash "gamma" alone to verify the label encoding
     let (_, gamma_only_raw, t) = t.squeeze()
     // SHA256("gamma") = 0xbe9d587defa1f0c09ef49eb17e206983a5f8f8289e4281860bd0ee5a19592c67
@@ -785,23 +785,23 @@ fn test_verify_end_to_end() {
 
     // gamma_kzg transcript
     let mut t2 = Transcript::new()
-    t2 = t2.write_label(0x67616d6d61000000000000000000000000000000000000000000000000000000, 5)
-    t2 = t2.write_u256(zeta)
-    t2 = t2.write_g1(linearized)
-    t2 = t2.write_g1(proof.lro[0])
-    t2 = t2.write_g1(proof.lro[1])
-    t2 = t2.write_g1(proof.lro[2])
-    t2 = t2.write_g1(vk.s[0])
-    t2 = t2.write_g1(vk.s[1])
-    t2 = t2.write_g1(vk.qcp[0])
-    t2 = t2.write_u256(const_lin)
-    t2 = t2.write_u256(l)
-    t2 = t2.write_u256(r)
-    t2 = t2.write_u256(o)
-    t2 = t2.write_u256(s1)
-    t2 = t2.write_u256(s2)
-    t2 = t2.write_u256(qc_val)
-    t2 = t2.write_u256(zu)
+    t2 = t2.write_label(label: 0x67616d6d61000000000000000000000000000000000000000000000000000000, label_len: 5)
+    t2 = t2.write_u256(val:zeta)
+    t2 = t2.write_g1(p:linearized)
+    t2 = t2.write_g1(p:proof.lro[0])
+    t2 = t2.write_g1(p:proof.lro[1])
+    t2 = t2.write_g1(p:proof.lro[2])
+    t2 = t2.write_g1(p:vk.s[0])
+    t2 = t2.write_g1(p:vk.s[1])
+    t2 = t2.write_g1(p:vk.qcp[0])
+    t2 = t2.write_u256(val:const_lin)
+    t2 = t2.write_u256(val:l)
+    t2 = t2.write_u256(val:r)
+    t2 = t2.write_u256(val:o)
+    t2 = t2.write_u256(val:s1)
+    t2 = t2.write_u256(val:s2)
+    t2 = t2.write_u256(val:qc_val)
+    t2 = t2.write_u256(val:zu)
     let (gamma_kzg, _, _) = t2.squeeze()
 
     // Fold
@@ -833,20 +833,20 @@ fn test_verify_end_to_end() {
     folded_eval = field::add<F_Q>(folded_eval, field::mul<F_Q>(claimed[6], g6))
 
     // KZG points — test each individually
-    let _t1 = ec_mul(proof.batched_h, 1)  // W_zeta
-    let _t2 = ec_mul(proof.z_shifted_h, 1)  // W_zeta_omega
-    let _t3 = ec_mul(vk.g1_srs, 1)  // G1 SRS
+    let _t1 = ec_mul(p: proof.batched_h, s: 1)  // W_zeta
+    let _t2 = ec_mul(p: proof.z_shifted_h, s: 1)  // W_zeta_omega
+    let _t3 = ec_mul(p: vk.g1_srs, s: 1)  // G1 SRS
 
     // Derive U challenge
     let zeta_raw: u256 = 0xc3b84ae752216a5cae098493e1282230f2d8db540b958f2c6d0067f9ee0fed8a
     let mut t3 = Transcript::new()
-    t3 = t3.write_label(0x7500000000000000000000000000000000000000000000000000000000000000, 1)
-    t3 = t3.write_u256(zeta_raw)
-    t3 = t3.write_u256(gamma_kzg)
-    t3 = t3.write_g1(folded_digest)
-    t3 = t3.write_g1(proof.z)
-    t3 = t3.write_g1(proof.batched_h)
-    t3 = t3.write_g1(proof.z_shifted_h)
+    t3 = t3.write_label(label: 0x7500000000000000000000000000000000000000000000000000000000000000, label_len: 1)
+    t3 = t3.write_u256(val:zeta_raw)
+    t3 = t3.write_u256(val:gamma_kzg)
+    t3 = t3.write_g1(p:folded_digest)
+    t3 = t3.write_g1(p:proof.z)
+    t3 = t3.write_g1(p:proof.batched_h)
+    t3 = t3.write_g1(p:proof.z_shifted_h)
     let (u_challenge, _, _) = t3.squeeze()
 
     let omega: u256 = 5709868443893258075976348696661355716898495876243883251619397131511003808859
@@ -856,24 +856,24 @@ fn test_verify_end_to_end() {
     use ec::bn254::negate
 
     // Step A
-    let u_times_zsh = ec_mul(proof.z_shifted_h, u_challenge)  // checkpoint A1
-    let folded_quotients = ec_add(proof.batched_h, u_times_zsh)  // checkpoint A2
+    let u_times_zsh = ec_mul(p: proof.z_shifted_h, s: u_challenge)  // checkpoint A1
+    let folded_quotients = ec_add(a: proof.batched_h, b: u_times_zsh)  // checkpoint A2
 
     // Step B
     let eval_sum = field::add<F_Q>(folded_eval, field::mul<F_Q>(u_challenge, zu))
-    let folded_evals_commit = ec_mul(vk.g1_srs, eval_sum)  // checkpoint B
+    let folded_evals_commit = ec_mul(p: vk.g1_srs, s: eval_sum)  // checkpoint B
 
     // Step C: point_term = zeta * batched_h + u * shifted_zeta * z_shifted_h
-    let zeta_times_wz = ec_mul(proof.batched_h, zeta)
-    let us_zeta_times_wzo = ec_mul(proof.z_shifted_h, field::mul<F_Q>(u_challenge, shifted_zeta))
-    let point_term = ec_add(zeta_times_wz, us_zeta_times_wzo)
+    let zeta_times_wz = ec_mul(p: proof.batched_h, s: zeta)
+    let us_zeta_times_wzo = ec_mul(p: proof.z_shifted_h, s: field::mul<F_Q>(u_challenge, shifted_zeta))
+    let point_term = ec_add(a: zeta_times_wz, b: us_zeta_times_wzo)
 
     // Step D: lhs = folded_digest + u*Z - folded_evals_commit + point_term
-    let u_times_z = ec_mul(proof.z, u_challenge)
-    let step1 = ec_add(folded_digest, u_times_z)
-    let neg_evals = negate(folded_evals_commit)
-    let step2 = ec_add(step1, neg_evals)
-    let lhs = ec_add(step2, point_term)
+    let u_times_z = ec_mul(p: proof.z, s: u_challenge)
+    let step1 = ec_add(a: folded_digest, b: u_times_z)
+    let neg_evals = negate(p: folded_evals_commit)
+    let step2 = ec_add(a: step1, b: neg_evals)
+    let lhs = ec_add(a: step2, b: point_term)
 
     // All EC ops passed above (MSM, fold, KZG points).
     // Now call the actual verify function:
@@ -958,9 +958,9 @@ fn test_kzg_fold_scalars() {
 fn test_v6_gamma_label_and_vk() {
     // Verify that SHA256("gamma" + first VK point) matches expected
     let mut t = Transcript::new()
-    t = t.write_label(GAMMA_LABEL, 5)
+    t = t.write_label(label: GAMMA_LABEL, label_len: 5)
     // S1_X from v6 VK
-    t = t.write_u256(9956956733383539527828528704346982954811130189972564286856709656590492390783)
+    t = t.write_u256(val:9956956733383539527828528704346982954811130189972564286856709656590492390783)
     // Just test the first 37 bytes produce the right start
     // If this passes, the label encoding and first VK value are correct
     assert(t.len == 37)
@@ -970,47 +970,47 @@ fn test_v6_gamma_label_and_vk() {
 fn test_v6_gamma_challenge() {
     // v6 VK first point: S1_X
     let mut t = Transcript::new()
-    t = t.write_label(GAMMA_LABEL, 5)
+    t = t.write_label(label: GAMMA_LABEL, label_len: 5)
     // S1 (x, y)
-    t = t.write_u256(9956956733383539527828528704346982954811130189972564286856709656590492390783)
-    t = t.write_u256(16561941243254960602343726886092320314575403533969071986056337989120686189882)
+    t = t.write_u256(val:9956956733383539527828528704346982954811130189972564286856709656590492390783)
+    t = t.write_u256(val:16561941243254960602343726886092320314575403533969071986056337989120686189882)
     // S2 (x, y)
-    t = t.write_u256(20374741449540543556499660179263983188390530543434373332462519860014413516289)
-    t = t.write_u256(8513455195626237033487485922347652175901063415320070186421575800344119284165)
+    t = t.write_u256(val:20374741449540543556499660179263983188390530543434373332462519860014413516289)
+    t = t.write_u256(val:8513455195626237033487485922347652175901063415320070186421575800344119284165)
     // S3 (x, y)
-    t = t.write_u256(17142227368091895742859950676182428277541451282467607716193503860042663502549)
-    t = t.write_u256(12829174888268721439052436070745892278566825005271705420525175951948128646413)
+    t = t.write_u256(val:17142227368091895742859950676182428277541451282467607716193503860042663502549)
+    t = t.write_u256(val:12829174888268721439052436070745892278566825005271705420525175951948128646413)
     // QL (x, y)
-    t = t.write_u256(10936403877113400171814029258586094421105837069937643866695822256928377913968)
-    t = t.write_u256(17311182666118490454430265150735546359745608671115556843788944971563039300016)
+    t = t.write_u256(val:10936403877113400171814029258586094421105837069937643866695822256928377913968)
+    t = t.write_u256(val:17311182666118490454430265150735546359745608671115556843788944971563039300016)
     // QR (x, y)
-    t = t.write_u256(16032802090162682725903814972017385562886704406468141346968145983310475511911)
-    t = t.write_u256(16803777488545011133374943287703653910096989118082992957503857327508542673114)
+    t = t.write_u256(val:16032802090162682725903814972017385562886704406468141346968145983310475511911)
+    t = t.write_u256(val:16803777488545011133374943287703653910096989118082992957503857327508542673114)
     // QM (x, y)
-    t = t.write_u256(7041740842251303753059524333065028234525995021747993588573234611770565484750)
-    t = t.write_u256(7756772573841616356086078220846315947185632323121180681135487008638788536094)
+    t = t.write_u256(val:7041740842251303753059524333065028234525995021747993588573234611770565484750)
+    t = t.write_u256(val:7756772573841616356086078220846315947185632323121180681135487008638788536094)
     // QO (x, y)
-    t = t.write_u256(8807113593766821411972572357967651651345992430818514862534237402324085851875)
-    t = t.write_u256(9827115302746495531711628100661677137543191000457083504235238115987266270156)
+    t = t.write_u256(val:8807113593766821411972572357967651651345992430818514862534237402324085851875)
+    t = t.write_u256(val:9827115302746495531711628100661677137543191000457083504235238115987266270156)
     // QK (x, y)
-    t = t.write_u256(4659055902458442531441402775737578699425178194825095727614170820825642511722)
-    t = t.write_u256(2854792741677890224744936867769988448466277171603338196705997958237726289995)
+    t = t.write_u256(val:4659055902458442531441402775737578699425178194825095727614170820825642511722)
+    t = t.write_u256(val:2854792741677890224744936867769988448466277171603338196705997958237726289995)
     // QCP[0] (x, y)
-    t = t.write_u256(8032592088052402119252717716570843753829708920203926363246235929861264130729)
-    t = t.write_u256(13824231045893282984607165590437904083147145250603202024200081150405773221988)
+    t = t.write_u256(val:8032592088052402119252717716570843753829708920203926363246235929861264130729)
+    t = t.write_u256(val:13824231045893282984607165590437904083147145250603202024200081150405773221988)
     // 5 public inputs
-    t = t.write_u256(0x004a55ed3c7a07d0233a027278a8b7ff8681ffbd5d1ec4795c18966f6e693090)  // pi0
-    t = t.write_u256(0x0f1cb7decf31e49c7934c3740bec5df3ead27bc947af739782930df6e37e9d90)  // pi1
-    t = t.write_u256(0)  // pi2 exitCode
-    t = t.write_u256(0x008cd56e10c2fe24795cff1e1d1f40d3a324528d315674da45d26afb376e8670)  // pi3 vkRoot
-    t = t.write_u256(0)  // pi4 nonce
+    t = t.write_u256(val:0x004a55ed3c7a07d0233a027278a8b7ff8681ffbd5d1ec4795c18966f6e693090)  // pi0
+    t = t.write_u256(val:0x0f1cb7decf31e49c7934c3740bec5df3ead27bc947af739782930df6e37e9d90)  // pi1
+    t = t.write_u256(val:0)  // pi2 exitCode
+    t = t.write_u256(val:0x008cd56e10c2fe24795cff1e1d1f40d3a324528d315674da45d26afb376e8670)  // pi3 vkRoot
+    t = t.write_u256(val:0)  // pi4 nonce
     // Wire commitments L, R, O from v6 proof (starting at byte 100)
-    t = t.write_u256(0x06232459bd070942b95a2fd99cf8872eeee49ba7cd7ebe07ec3ef1b4b2a74d91)  // L.x
-    t = t.write_u256(0x154e14823bfcf0b1fcd5a43df161341594c070ae4d2814a818c262a435b68188)  // L.y
-    t = t.write_u256(0x15404bf08191a8b3095519798cf76c536f65e264997b59e7f9f554d7b9d24b12)  // R.x
-    t = t.write_u256(0x0887cd80d76b8b56c9261983cae540bfbc77f2aabb5ee16cee0362dfe079bd12)  // R.y
-    t = t.write_u256(0x0940fd1df4048a50b264164a972fc28739dc1365e3dcd3f0fb39a89e5dbf48e2)  // O.x
-    t = t.write_u256(0x2903f07b564d791699df704aeb7fc3a0d196e392eaba115b629a562d7b54daa9)  // O.y
+    t = t.write_u256(val:0x06232459bd070942b95a2fd99cf8872eeee49ba7cd7ebe07ec3ef1b4b2a74d91)  // L.x
+    t = t.write_u256(val:0x154e14823bfcf0b1fcd5a43df161341594c070ae4d2814a818c262a435b68188)  // L.y
+    t = t.write_u256(val:0x15404bf08191a8b3095519798cf76c536f65e264997b59e7f9f554d7b9d24b12)  // R.x
+    t = t.write_u256(val:0x0887cd80d76b8b56c9261983cae540bfbc77f2aabb5ee16cee0362dfe079bd12)  // R.y
+    t = t.write_u256(val:0x0940fd1df4048a50b264164a972fc28739dc1365e3dcd3f0fb39a89e5dbf48e2)  // O.x
+    t = t.write_u256(val:0x2903f07b564d791699df704aeb7fc3a0d196e392eaba115b629a562d7b54daa9)  // O.y
 
     let (_, gamma_raw, t) = t.squeeze()
 
@@ -1025,22 +1025,22 @@ fn test_v6_all_challenges() {
 
     // Beta = SHA256("beta" || gamma_raw)
     let mut t = Transcript::new()
-    t = t.write_label(BETA_LABEL, 4)
-    t = t.write_u256(gamma_raw)
+    t = t.write_label(label: BETA_LABEL, label_len: 4)
+    t = t.write_u256(val:gamma_raw)
     let (_, beta_raw, t) = t.squeeze()
     assert(beta_raw == 0x4e56c438a8b25590e81c8bb610688afb1f226fba52e6edc7363b21baca7eacab)
 
     // Alpha = SHA256("alpha" || beta_raw || bsb22_commit || Z)
     // bsb22 and Z from v6 proof at offsets 0x320 and 0x220 respectively
     let mut t = Transcript::new()
-    t = t.write_label(ALPHA_LABEL, 5)
-    t = t.write_u256(beta_raw)
+    t = t.write_label(label: ALPHA_LABEL, label_len: 5)
+    t = t.write_u256(val:beta_raw)
     // BSB22 commitment (v6 proof offset 0x320)
-    t = t.write_u256(0x296197d04b2d5f020a80db0ee9b7a0d62f0c0576997960bf24b718a65edd5bd2)
-    t = t.write_u256(0x089afd886e912bef248a89f57e075f5737fe71f57be70fdabb6a55f25f1c092b)
+    t = t.write_u256(val:0x296197d04b2d5f020a80db0ee9b7a0d62f0c0576997960bf24b718a65edd5bd2)
+    t = t.write_u256(val:0x089afd886e912bef248a89f57e075f5737fe71f57be70fdabb6a55f25f1c092b)
     // Z commitment (v6 proof offset 0x220)
-    t = t.write_u256(0x1b8cf196023c29725a2b372fcb7b02579480e58281ddba98dc4d054620dd1c50)
-    t = t.write_u256(0x2cb66a9d6e2f0c5dc50e32510c756b0ad319202f34171e69820014d705c3bcea)
+    t = t.write_u256(val:0x1b8cf196023c29725a2b372fcb7b02579480e58281ddba98dc4d054620dd1c50)
+    t = t.write_u256(val:0x2cb66a9d6e2f0c5dc50e32510c756b0ad319202f34171e69820014d705c3bcea)
     let (_, alpha_raw, t) = t.squeeze()
     assert(alpha_raw == 0x8b4c0cc8930c7effedf6847ec5b115c7b78b3b9a74ff18c9fa4ead79e39e14dc)
 }
@@ -1051,17 +1051,17 @@ fn test_v6_zeta_challenge() {
 
     // Zeta = SHA256("zeta" || alpha_raw || H0 || H1 || H2)
     let mut t = Transcript::new()
-    t = t.write_label(ZETA_LABEL, 4)
-    t = t.write_u256(alpha_raw)
+    t = t.write_label(label: ZETA_LABEL, label_len: 4)
+    t = t.write_u256(val:alpha_raw)
     // H0
-    t = t.write_u256(0x2f7c08eac11c4a53dff5104825a743418815599bec73b5b516c4a912343ad33a)
-    t = t.write_u256(0x1ba1c600ce5d285d97428833bd6050d5708efc922b15ce7778d675071d5e2c0f)
+    t = t.write_u256(val:0x2f7c08eac11c4a53dff5104825a743418815599bec73b5b516c4a912343ad33a)
+    t = t.write_u256(val:0x1ba1c600ce5d285d97428833bd6050d5708efc922b15ce7778d675071d5e2c0f)
     // H1
-    t = t.write_u256(0x0aef2040bd5a16bf81e154b76387192a91362b431311434801774584c4cca5af)
-    t = t.write_u256(0x2f82a5996ddafb7b5bc009ee1c336412a1abcb9de944ec961d65de0f07c36178)
+    t = t.write_u256(val:0x0aef2040bd5a16bf81e154b76387192a91362b431311434801774584c4cca5af)
+    t = t.write_u256(val:0x2f82a5996ddafb7b5bc009ee1c336412a1abcb9de944ec961d65de0f07c36178)
     // H2
-    t = t.write_u256(0x26dd3d2fab429286a3832f221505ac56cdbdc2dff07337a970b6d45aa542b395)
-    t = t.write_u256(0x2fd4c0d4b57b853c080939eebac4298a3d1dbd19fa28fc2026efd88935bef01f)
+    t = t.write_u256(val:0x26dd3d2fab429286a3832f221505ac56cdbdc2dff07337a970b6d45aa542b395)
+    t = t.write_u256(val:0x2fd4c0d4b57b853c080939eebac4298a3d1dbd19fa28fc2026efd88935bef01f)
     let (_, zeta_raw, t) = t.squeeze()
     assert(zeta_raw == 0x9cfa5df065c8d2170b994be2f13f26328184096125b806282cc4482082fb210d)
 }

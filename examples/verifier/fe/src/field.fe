@@ -1,4 +1,4 @@
-use std::evm::ops
+use std::evm::crypto::{addmod, mulmod, mstore, mload, raw_staticcall, gas, modexp}
 
 /// BN254 scalar field order — single source of truth.
 pub const F_Q: u256 = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
@@ -12,40 +12,40 @@ pub const F_Q: u256 = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593
 /// that the compiler monomorphizes into the same addmod/mulmod opcodes,
 /// but you can't accidentally cross them.
 
-pub fn add<const MODULUS: u256>(a: u256, b: u256) -> u256 {
-    ops::addmod(a, b, MODULUS)
+pub fn add<const MODULUS: u256>(_ a: u256, _ b: u256) -> u256 {
+    addmod(a, b, MODULUS)
 }
 
-pub fn mul<const MODULUS: u256>(a: u256, b: u256) -> u256 {
-    ops::mulmod(a, b, MODULUS)
+pub fn mul<const MODULUS: u256>(_ a: u256, _ b: u256) -> u256 {
+    mulmod(a, b, MODULUS)
 }
 
-pub fn sub<const MODULUS: u256>(a: u256, b: u256) -> u256 {
-    ops::addmod(a, MODULUS - b, MODULUS)
+pub fn sub<const MODULUS: u256>(_ a: u256, _ b: u256) -> u256 {
+    addmod(a, MODULUS - b, MODULUS)
 }
 
 /// Modular exponentiation via the modexp precompile (address 0x05).
-pub fn exp<const MODULUS: u256>(base: u256, exponent: u256) -> u256 {
+pub fn exp<const MODULUS: u256>(_ base: u256, _ exponent: u256) -> u256 {
     let ptr = std::evm::alloc(192)
-    ops::mstore(ptr, 32)        // base length
-    ops::mstore(ptr + 32, 32)   // exponent length
-    ops::mstore(ptr + 64, 32)   // modulus length
-    ops::mstore(ptr + 96, base)
-    ops::mstore(ptr + 128, exponent)
-    ops::mstore(ptr + 160, MODULUS)
-    let success = ops::staticcall(ops::gas(), 5, ptr, 192, ptr, 32)
-    if success == 0 { ops::revert(0, 0) }
-    ops::mload(ptr)
+    mstore(ptr, 32)        // base length
+    mstore(ptr + 32, 32)   // exponent length
+    mstore(ptr + 64, 32)   // modulus length
+    mstore(ptr + 96, base)
+    mstore(ptr + 128, exponent)
+    mstore(ptr + 160, MODULUS)
+    let success = raw_staticcall(gas(), 5, ptr, 192, ptr, 32)
+    if success == 0 { std::evm::assert(false) }
+    mload(ptr)
 }
 
 /// Modular inverse: a^(-1) mod MODULUS via Fermat's little theorem.
 /// Requires MODULUS to be prime.
 #[arithmetic(unchecked)]
-pub fn inv<const MODULUS: u256>(a: u256) -> u256 {
+pub fn inv<const MODULUS: u256>(_ a: u256) -> u256 {
     exp<MODULUS>(a, MODULUS - 2)
 }
 
 /// Negate: -a mod MODULUS
-pub fn neg<const MODULUS: u256>(a: u256) -> u256 {
+pub fn neg<const MODULUS: u256>(_ a: u256) -> u256 {
     if a == 0 { 0 } else { MODULUS - a }
 }

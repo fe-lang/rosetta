@@ -1,5 +1,5 @@
 use std::abi::sol
-use std::evm::ops
+use std::evm::crypto::calldataload
 use ec::bn254::{G1Point, G2Point}
 use super::plonk::{PlonkVK, PlonkProof, verify, debug_challenges}
 
@@ -36,30 +36,30 @@ fn example_vk() -> PlonkVK {
 fn parse_proof(proof_offset: u256) -> PlonkProof {
     PlonkProof {
         lro: [
-            G1Point { x: ops::calldataload(proof_offset), y: ops::calldataload(proof_offset + 0x20) },
-            G1Point { x: ops::calldataload(proof_offset + 0x40), y: ops::calldataload(proof_offset + 0x60) },
-            G1Point { x: ops::calldataload(proof_offset + 0x80), y: ops::calldataload(proof_offset + 0xa0) },
+            G1Point { x: calldataload(proof_offset), y: calldataload(proof_offset + 0x20) },
+            G1Point { x: calldataload(proof_offset + 0x40), y: calldataload(proof_offset + 0x60) },
+            G1Point { x: calldataload(proof_offset + 0x80), y: calldataload(proof_offset + 0xa0) },
         ],
-        z: G1Point { x: ops::calldataload(proof_offset + 0x220), y: ops::calldataload(proof_offset + 0x240) },
+        z: G1Point { x: calldataload(proof_offset + 0x220), y: calldataload(proof_offset + 0x240) },
         h: [
-            G1Point { x: ops::calldataload(proof_offset + 0xc0), y: ops::calldataload(proof_offset + 0xe0) },
-            G1Point { x: ops::calldataload(proof_offset + 0x100), y: ops::calldataload(proof_offset + 0x120) },
-            G1Point { x: ops::calldataload(proof_offset + 0x140), y: ops::calldataload(proof_offset + 0x160) },
+            G1Point { x: calldataload(proof_offset + 0xc0), y: calldataload(proof_offset + 0xe0) },
+            G1Point { x: calldataload(proof_offset + 0x100), y: calldataload(proof_offset + 0x120) },
+            G1Point { x: calldataload(proof_offset + 0x140), y: calldataload(proof_offset + 0x160) },
         ],
         bsb22_commitments: [
-            G1Point { x: ops::calldataload(proof_offset + 0x320), y: ops::calldataload(proof_offset + 0x340) },
+            G1Point { x: calldataload(proof_offset + 0x320), y: calldataload(proof_offset + 0x340) },
         ],
-        batched_h: G1Point { x: ops::calldataload(proof_offset + 0x280), y: ops::calldataload(proof_offset + 0x2a0) },
+        batched_h: G1Point { x: calldataload(proof_offset + 0x280), y: calldataload(proof_offset + 0x2a0) },
         claimed_values: [
-            ops::calldataload(proof_offset + 0x180),
-            ops::calldataload(proof_offset + 0x1a0),
-            ops::calldataload(proof_offset + 0x1c0),
-            ops::calldataload(proof_offset + 0x1e0),
-            ops::calldataload(proof_offset + 0x200),
-            ops::calldataload(proof_offset + 0x300),
+            calldataload(proof_offset + 0x180),
+            calldataload(proof_offset + 0x1a0),
+            calldataload(proof_offset + 0x1c0),
+            calldataload(proof_offset + 0x1e0),
+            calldataload(proof_offset + 0x200),
+            calldataload(proof_offset + 0x300),
         ],
-        z_shifted_h: G1Point { x: ops::calldataload(proof_offset + 0x2c0), y: ops::calldataload(proof_offset + 0x2e0) },
-        z_shifted_value: ops::calldataload(proof_offset + 0x260),
+        z_shifted_h: G1Point { x: calldataload(proof_offset + 0x2c0), y: calldataload(proof_offset + 0x2e0) },
+        z_shifted_value: calldataload(proof_offset + 0x260),
     }
 }
 

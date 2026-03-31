@@ -9,7 +9,7 @@ use super::field
 use super::field::F_Q
 use super::transcript::Transcript
 use super::msm
-use std::evm::ops
+use std::evm::crypto::{calldataload, mulmod, addmod}
 
 /// BN254 scalar field — for all polynomial evaluations and challenges.
 
@@ -82,7 +82,7 @@ pub struct Halo2Proof {
 pub fn read_field_elements_from_calldata(offset: u256, count: usize) -> [u256; 32] {
     let mut elems: [u256; 32] = [0; 32]
     for i in 0..count {
-        let raw = ops::calldataload(offset + (i as u256) * 32)
+        let raw = calldataload(offset + (i as u256) * 32)
         elems[i] = raw % F_Q
     }
     elems
@@ -103,10 +103,10 @@ pub fn validate_ec_point(p: G1Point) -> bool {
     if p.x >= f_p { return false }
     if p.y >= f_p { return false }
     // Check y^2 = x^3 + 3 (mod p)
-    let y2 = ops::mulmod(p.y, p.y, f_p)
-    let x2 = ops::mulmod(p.x, p.x, f_p)
-    let x3 = ops::mulmod(x2, p.x, f_p)
-    let x3_plus_3 = ops::addmod(x3, 3, f_p)
+    let y2 = mulmod(p.y, p.y, f_p)
+    let x2 = mulmod(p.x, p.x, f_p)
+    let x3 = mulmod(x2, p.x, f_p)
+    let x3_plus_3 = addmod(x3, 3, f_p)
     y2 == x3_plus_3
 }
 
@@ -125,24 +125,24 @@ pub fn derive_challenges(
     let mut t = Transcript::new()
 
     // Initialize with VK constant
-    t = t.write_u256(vk.transcript_init)
+    t = t.write_u256(val: vk.transcript_init)
 
     // Append instance evaluations
     for i in 0..1 {
-        t = t.write_u256(proof.instance_evals[i])
+        t = t.write_u256(val: proof.instance_evals[i])
     }
 
     // Append advice commitments
     for i in 0..5 {
-        t = t.write_g1(proof.advice_comms[i])
+        t = t.write_g1(p: proof.advice_comms[i])
     }
 
     // Squeeze challenges
     let (theta, _, mut t) = t.squeeze()
 
     // Append more data for beta
-    t = t.write_u256(proof.vanishing_random_comm.x)
-    t = t.write_u256(proof.vanishing_random_comm.y)
+    t = t.write_u256(val: proof.vanishing_random_comm.x)
+    t = t.write_u256(val: proof.vanishing_random_comm.y)
     let (beta, _, mut t) = t.squeeze()
 
     // Gamma from beta
@@ -150,13 +150,13 @@ pub fn derive_challenges(
 
     // Append permutation commitments for alpha
     for i in 0..4 {
-        t = t.write_g1(proof.permutation_z_comms[i])
+        t = t.write_g1(p: proof.permutation_z_comms[i])
     }
     let (alpha, _, mut t) = t.squeeze()
 
     // Append quotient commitments for x (evaluation point)
     for i in 0..4 {
-        t = t.write_g1(proof.h_comms[i])
+        t = t.write_g1(p: proof.h_comms[i])
     }
     let (x, _, _) = t.squeeze()
 
@@ -189,7 +189,7 @@ pub fn kzg_pairing_check(
     g2_srs: G2Point,
 ) -> bool {
     // e(-P, [x]_2) * e(Q, G2_generator) == 1
-    let neg_p = negate(p)
+    let neg_p = negate(p: p)
 
     // G2 generator
     let g2_gen = G2Point {
@@ -199,5 +199,5 @@ pub fn kzg_pairing_check(
         y_real: 0x12c85ea5db8c6deb4aab71808dcb408fe3d1e7690c43d37b4ce6cc0166fa7daa,
     }
 
-    ec_pairing_2(neg_p, g2_srs, q, g2_gen)
+    ec_pairing_2(a1: neg_p, b1: g2_srs, a2: q, b2: g2_gen)
 }

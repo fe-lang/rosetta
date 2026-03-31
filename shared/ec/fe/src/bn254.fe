@@ -1,4 +1,4 @@
-use std::evm::ops
+use std::evm::crypto::{mstore, mload, raw_staticcall, gas}
 
 /// BN254 elliptic curve operations via EVM precompiles.
 /// Semantically equivalent to EigenLayer's BN254.sol / Tornado Cash's Pairing library.
@@ -19,7 +19,7 @@ impl Copy for G1Point {}
 
 impl Add for G1Point {
     fn add(own self, _ rhs: own G1Point) -> G1Point {
-        ec_add(self, rhs)
+        ec_add(a: self, b: rhs)
     }
 }
 
@@ -29,7 +29,7 @@ impl G1Point {
     pub fn is_origin(self) -> bool { self.x == 0 && self.y == 0 }
 
     /// Scalar multiply: self * s
-    pub fn scale(self, s: u256) -> G1Point { ec_mul(self, s) }
+    pub fn scale(self, s: u256) -> G1Point { ec_mul(p: self, s) }
 }
 
 /// A G2 point (x, y) where x and y are elements of F_p^2.
@@ -64,15 +64,15 @@ pub fn negate(p: G1Point) -> G1Point {
 /// Output: one G1 point (x3, y3) = 64 bytes
 pub fn ec_add(a: G1Point, b: G1Point) -> G1Point {
     let ptr = std::evm::alloc(128)
-    ops::mstore(ptr, a.x)
-    ops::mstore(ptr + 32, a.y)
-    ops::mstore(ptr + 64, b.x)
-    ops::mstore(ptr + 96, b.y)
+    mstore(ptr, a.x)
+    mstore(ptr + 32, a.y)
+    mstore(ptr + 64, b.x)
+    mstore(ptr + 96, b.y)
 
-    let success = ops::staticcall(ops::gas(), 6, ptr, 128, ptr, 64)
-    if success == 0 { ops::revert(0, 0) }
+    let success = raw_staticcall(gas(), 6, ptr, 128, ptr, 64)
+    if success == 0 { std::evm::assert(false) }
 
-    G1Point { x: ops::mload(ptr), y: ops::mload(ptr + 32) }
+    G1Point { x: mload(ptr), y: mload(ptr + 32) }
 }
 
 /// EC scalar multiplication via precompile at address 0x07.
@@ -80,14 +80,14 @@ pub fn ec_add(a: G1Point, b: G1Point) -> G1Point {
 /// Output: one G1 point (x, y) = 64 bytes
 pub fn ec_mul(p: G1Point, s: u256) -> G1Point {
     let ptr = std::evm::alloc(96)
-    ops::mstore(ptr, p.x)
-    ops::mstore(ptr + 32, p.y)
-    ops::mstore(ptr + 64, s)
+    mstore(ptr, p.x)
+    mstore(ptr + 32, p.y)
+    mstore(ptr + 64, s)
 
-    let success = ops::staticcall(ops::gas(), 7, ptr, 96, ptr, 64)
-    if success == 0 { ops::revert(0, 0) }
+    let success = raw_staticcall(gas(), 7, ptr, 96, ptr, 64)
+    if success == 0 { std::evm::assert(false) }
 
-    G1Point { x: ops::mload(ptr), y: ops::mload(ptr + 32) }
+    G1Point { x: mload(ptr), y: mload(ptr + 32) }
 }
 
 /// EC pairing check via precompile at address 0x08.
@@ -100,35 +100,35 @@ pub fn ec_pairing_2(
 ) -> bool {
     let ptr = std::evm::alloc(384)
     // First pair
-    ops::mstore(ptr, a1.x)
-    ops::mstore(ptr + 32, a1.y)
-    ops::mstore(ptr + 64, b1.x_imag)
-    ops::mstore(ptr + 96, b1.x_real)
-    ops::mstore(ptr + 128, b1.y_imag)
-    ops::mstore(ptr + 160, b1.y_real)
+    mstore(ptr, a1.x)
+    mstore(ptr + 32, a1.y)
+    mstore(ptr + 64, b1.x_imag)
+    mstore(ptr + 96, b1.x_real)
+    mstore(ptr + 128, b1.y_imag)
+    mstore(ptr + 160, b1.y_real)
     // Second pair
-    ops::mstore(ptr + 192, a2.x)
-    ops::mstore(ptr + 224, a2.y)
-    ops::mstore(ptr + 256, b2.x_imag)
-    ops::mstore(ptr + 288, b2.x_real)
-    ops::mstore(ptr + 320, b2.y_imag)
-    ops::mstore(ptr + 352, b2.y_real)
+    mstore(ptr + 192, a2.x)
+    mstore(ptr + 224, a2.y)
+    mstore(ptr + 256, b2.x_imag)
+    mstore(ptr + 288, b2.x_real)
+    mstore(ptr + 320, b2.y_imag)
+    mstore(ptr + 352, b2.y_real)
 
-    let success = ops::staticcall(ops::gas(), 8, ptr, 384, ptr, 32)
-    if success == 0 { ops::revert(0, 0) }
+    let success = raw_staticcall(gas(), 8, ptr, 384, ptr, 32)
+    if success == 0 { std::evm::assert(false) }
 
-    ops::mload(ptr) == 1
+    mload(ptr) == 1
 }
 
 /// Write a (G1, G2) pair to memory at the given offset.
 /// Each pair is 192 bytes: G1(x,y) + G2(x_imag, x_real, y_imag, y_real).
 fn write_pair(ptr: u256, a: G1Point, b: G2Point) {
-    ops::mstore(ptr, a.x)
-    ops::mstore(ptr + 32, a.y)
-    ops::mstore(ptr + 64, b.x_imag)
-    ops::mstore(ptr + 96, b.x_real)
-    ops::mstore(ptr + 128, b.y_imag)
-    ops::mstore(ptr + 160, b.y_real)
+    mstore(ptr, a.x)
+    mstore(ptr + 32, a.y)
+    mstore(ptr + 64, b.x_imag)
+    mstore(ptr + 96, b.x_real)
+    mstore(ptr + 128, b.y_imag)
+    mstore(ptr + 160, b.y_real)
 }
 
 /// 4-pair pairing check: e(a1,b1) * e(a2,b2) * e(a3,b3) * e(a4,b4) == 1
@@ -140,13 +140,13 @@ pub fn ec_pairing_4(
     a4: G1Point, b4: G2Point,
 ) -> bool {
     let ptr = std::evm::alloc(768)
-    write_pair(ptr, a1, b1)
-    write_pair(ptr + 192, a2, b2)
-    write_pair(ptr + 384, a3, b3)
-    write_pair(ptr + 576, a4, b4)
+    write_pair(ptr, a: a1, b: b1)
+    write_pair(ptr: ptr + 192, a: a2, b: b2)
+    write_pair(ptr: ptr + 384, a: a3, b: b3)
+    write_pair(ptr: ptr + 576, a: a4, b: b4)
 
-    let success = ops::staticcall(ops::gas(), 8, ptr, 768, ptr, 32)
-    if success == 0 { ops::revert(0, 0) }
+    let success = raw_staticcall(gas(), 8, ptr, 768, ptr, 32)
+    if success == 0 { std::evm::assert(false) }
 
-    ops::mload(ptr) == 1
+    mload(ptr) == 1
 }
