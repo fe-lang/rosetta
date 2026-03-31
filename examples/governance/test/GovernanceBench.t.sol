@@ -58,9 +58,11 @@ contract GovernanceBenchTest {
     // Solidity Diamond instances
     address private solDiamond;
     address private solGas;
-    // Fe contract instances
-    address private feAddr;
-    address private feGas;
+    // Fe contract instances (two contracts: token + gov)
+    address private feToken;
+    address private feGov;
+    address private feTokenGas;
+    address private feGovGas;
 
     address constant OWNER = address(0xAD);
     address constant ALICE = address(0xA1);
@@ -76,7 +78,7 @@ contract GovernanceBenchTest {
         solDiamond = _deploySolDiamond();
         solGas = _deploySolDiamond();
 
-        // --- Deploy Fe contract ---
+        // --- Build Fe contracts ---
         uint256 optLevel = vm.envOr("FE_SONA_OPT_LEVEL", uint256(2));
         string[] memory cmd = new string[](7);
         cmd[0] = "fe";
@@ -88,34 +90,32 @@ contract GovernanceBenchTest {
         cmd[6] = "fe";
         vm.ffi(cmd);
 
-        string[] memory readCmd = new string[](3);
-        readCmd[0] = "bash";
-        readCmd[1] = "-c";
-        readCmd[2] = "printf '0x'; tr -d '\\n' < fe/out/MultiApp.bin";
-        bytes memory feInitcode = vm.ffi(readCmd);
+        // Read TokenContract bytecode
+        string[] memory readTokenCmd = new string[](3);
+        readTokenCmd[0] = "bash";
+        readTokenCmd[1] = "-c";
+        readTokenCmd[2] = "printf '0x'; tr -d '\\n' < fe/out/TokenContract.bin";
+        bytes memory tokenInitcode = vm.ffi(readTokenCmd);
 
-        // Fe constructor: (uint256 voting_period, uint256 quorum)
-        // The deployer (this contract) becomes the owner via ctx.caller() in init
-        feAddr = _deployFe(feInitcode);
-        feGas = _deployFe(feInitcode);
+        // Read GovContract bytecode
+        string[] memory readGovCmd = new string[](3);
+        readGovCmd[0] = "bash";
+        readGovCmd[1] = "-c";
+        readGovCmd[2] = "printf '0x'; tr -d '\\n' < fe/out/GovContract.bin";
+        bytes memory govInitcode = vm.ffi(readGovCmd);
 
-        // Transfer Fe ownership isn't needed; the deployer IS the owner.
-        // But we need OWNER to be the owner for prank-based tests.
-        // Fe has no transferOwnership, so we deploy from OWNER's perspective.
-        // Actually, the test contract deploys Fe, so test contract is owner.
-        // We'll use address(this) as owner for Fe, and OWNER for Sol.
-        // To keep things uniform, let's just have the test contract be the
-        // caller for mint (no prank needed for Fe mints from test contract).
-        //
-        // Alternative: we make the test contract the owner of both.
-        // Let's do that. The Sol diamond deployer already sets the test contract
-        // as owner (we pass address(this)).
+        // Deploy Fe: TokenContract first (no init args, owner = msg.sender),
+        // then GovContract with (token address, votingPeriod, quorum).
+        (feToken, feGov) = _deployFePair(tokenInitcode, govInitcode);
+        (feTokenGas, feGovGas) = _deployFePair(tokenInitcode, govInitcode);
 
         // --- Seed both with identical state ---
-        _seedState(solDiamond, true);
-        _seedState(feAddr, false);
-        _seedState(solGas, true);
-        _seedState(feGas, false);
+        // Token ops target: solDiamond (single addr) vs feToken
+        // Gov ops target:   solDiamond (single addr) vs feGov
+        _seedState(solDiamond, solDiamond, true);
+        _seedState(feToken, feGov, false);
+        _seedState(solGas, solGas, true);
+        _seedState(feTokenGas, feGovGas, false);
 
         vm.resumeGasMetering();
     }
@@ -143,25 +143,35 @@ contract GovernanceBenchTest {
         return d;
     }
 
-    function _deployFe(bytes memory feInitcode) internal returns (address) {
-        bytes memory initWithArgs = abi.encodePacked(
-            feInitcode,
-            abi.encode(VOTING_PERIOD, QUORUM)
+    function _deployFePair(bytes memory tokenInitcode, bytes memory govInitcode)
+        internal
+        returns (address token_, address gov_)
+    {
+        // TokenContract: no constructor args (owner = msg.sender)
+        address _token;
+        assembly { _token := create(0, add(tokenInitcode, 0x20), mload(tokenInitcode)) }
+        require(_token != address(0), "Fe TokenContract deploy failed");
+
+        // GovContract: init(address token, uint256 votingPeriod, uint256 quorum)
+        bytes memory govWithArgs = abi.encodePacked(
+            govInitcode,
+            abi.encode(_token, VOTING_PERIOD, QUORUM)
         );
-        address _fe;
-        assembly { _fe := create(0, add(initWithArgs, 0x20), mload(initWithArgs)) }
-        require(_fe != address(0), "Fe deploy failed");
-        return _fe;
+        address _gov;
+        assembly { _gov := create(0, add(govWithArgs, 0x20), mload(govWithArgs)) }
+        require(_gov != address(0), "Fe GovContract deploy failed");
+
+        return (_token, _gov);
     }
 
-    function _seedState(address target, bool isSol) internal {
+    function _seedState(address tokenTarget, address govTarget, bool isSol) internal {
         // Mint tokens (test contract is owner of both)
-        IToken(target).mint(ALICE, 1000);
-        IToken(target).mint(BOB, 500);
+        IToken(tokenTarget).mint(ALICE, 1000);
+        IToken(tokenTarget).mint(BOB, 500);
 
         // Init governance on Solidity Diamond only (Fe does it in constructor)
         if (isSol) {
-            IGovSol(target).initGovernance(VOTING_PERIOD, QUORUM);
+            IGovSol(govTarget).initGovernance(VOTING_PERIOD, QUORUM);
         }
     }
 
@@ -169,14 +179,14 @@ contract GovernanceBenchTest {
     // Helper: propose on Fe (uint256 description)
     // =====================================================================
 
-    function _fePropose(address fe, address caller, uint256 desc) internal returns (uint256) {
+    function _fePropose(address gov, address caller, uint256 desc) internal returns (uint256) {
         vm.prank(caller);
-        return IGovFe(fe).propose(desc);
+        return IGovFe(gov).propose(desc);
     }
 
-    function _solPropose(address sol, address caller, string memory desc) internal returns (uint256) {
+    function _solPropose(address diamond, address caller, string memory desc) internal returns (uint256) {
         vm.prank(caller);
-        return IGovSol(sol).propose(desc);
+        return IGovSol(diamond).propose(desc);
     }
 
     // =====================================================================
@@ -185,14 +195,14 @@ contract GovernanceBenchTest {
 
     function test_equivalence_balanceOf() public view {
         uint256 solBal = IToken(solDiamond).balanceOf(ALICE);
-        uint256 feBal = IToken(feAddr).balanceOf(ALICE);
+        uint256 feBal = IToken(feToken).balanceOf(ALICE);
         require(solBal == feBal, "balanceOf mismatch");
         require(solBal == 1000, "expected 1000");
     }
 
     function test_equivalence_totalSupply() public view {
         uint256 solSupply = IToken(solDiamond).totalSupply();
-        uint256 feSupply = IToken(feAddr).totalSupply();
+        uint256 feSupply = IToken(feToken).totalSupply();
         require(solSupply == feSupply, "totalSupply mismatch");
         require(solSupply == 1500, "expected 1500");
     }
@@ -201,15 +211,15 @@ contract GovernanceBenchTest {
         vm.prank(ALICE);
         bool solOk = IToken(solDiamond).transfer(BOB, 100);
         vm.prank(ALICE);
-        bool feOk = IToken(feAddr).transfer(BOB, 100);
+        bool feOk = IToken(feToken).transfer(BOB, 100);
 
         require(solOk == feOk, "transfer result mismatch");
         require(
-            IToken(solDiamond).balanceOf(ALICE) == IToken(feAddr).balanceOf(ALICE),
+            IToken(solDiamond).balanceOf(ALICE) == IToken(feToken).balanceOf(ALICE),
             "alice balance mismatch"
         );
         require(
-            IToken(solDiamond).balanceOf(BOB) == IToken(feAddr).balanceOf(BOB),
+            IToken(solDiamond).balanceOf(BOB) == IToken(feToken).balanceOf(BOB),
             "bob balance mismatch"
         );
     }
@@ -219,20 +229,20 @@ contract GovernanceBenchTest {
         vm.prank(ALICE);
         bool solOk = IToken(solDiamond).transfer(BOB, 9999);
         vm.prank(ALICE);
-        bool feOk = IToken(feAddr).transfer(BOB, 9999);
+        bool feOk = IToken(feToken).transfer(BOB, 9999);
 
         require(!solOk, "sol should fail");
         require(!feOk, "fe should fail");
         // Balances unchanged
         require(
-            IToken(solDiamond).balanceOf(ALICE) == IToken(feAddr).balanceOf(ALICE),
+            IToken(solDiamond).balanceOf(ALICE) == IToken(feToken).balanceOf(ALICE),
             "balance mismatch after failed transfer"
         );
     }
 
     function test_equivalence_propose_and_vote() public {
         uint256 solId = _solPropose(solDiamond, ALICE, "fund treasury");
-        uint256 feId = _fePropose(feAddr, ALICE, 42);
+        uint256 feId = _fePropose(feGov, ALICE, 42);
         require(solId == feId, "proposal id mismatch");
         require(solId == 0, "first proposal should be id 0");
 
@@ -240,16 +250,16 @@ contract GovernanceBenchTest {
         vm.prank(ALICE);
         IGovSol(solDiamond).vote(0, true);
         vm.prank(ALICE);
-        IGovFe(feAddr).vote(0, true);
+        IGovFe(feGov).vote(0, true);
 
         vm.prank(BOB);
         IGovSol(solDiamond).vote(0, false);
         vm.prank(BOB);
-        IGovFe(feAddr).vote(0, false);
+        IGovFe(feGov).vote(0, false);
 
         // Compare vote tallies
         (uint256 solYes, uint256 solNo,,) = IGovSol(solDiamond).getProposal(0);
-        (uint256 feYes, uint256 feNo,,) = IGovFe(feAddr).getProposal(0);
+        (uint256 feYes, uint256 feNo,,) = IGovFe(feGov).getProposal(0);
         require(solYes == feYes, "yes votes mismatch");
         require(solNo == feNo, "no votes mismatch");
         require(solYes == 1000, "alice should have 1000 weight");
@@ -260,16 +270,16 @@ contract GovernanceBenchTest {
         vm.prank(ALICE);
         IGovSol(solDiamond).delegate(BOB);
         vm.prank(ALICE);
-        IGovFe(feAddr).delegate(BOB);
+        IGovFe(feGov).delegate(BOB);
 
         uint256 solPower = IGovSol(solDiamond).votingPower(BOB);
-        uint256 fePower = IGovFe(feAddr).votingPower(BOB);
+        uint256 fePower = IGovFe(feGov).votingPower(BOB);
         require(solPower == fePower, "voting power mismatch");
         require(solPower == 1500, "expected 1500 (500 own + 1000 delegated)");
 
         // Verify delegate address stored
         address solDel = IGovSol(solDiamond).getDelegate(ALICE);
-        address feDel = IGovFe(feAddr).getDelegate(ALICE);
+        address feDel = IGovFe(feGov).getDelegate(ALICE);
         require(solDel == feDel, "delegate mismatch");
         require(solDel == BOB, "delegate should be BOB");
     }
@@ -281,23 +291,23 @@ contract GovernanceBenchTest {
         vm.prank(ALICE);
         IGovSol(solDiamond).delegate(BOB);
         vm.prank(ALICE);
-        IGovFe(feAddr).delegate(BOB);
+        IGovFe(feGov).delegate(BOB);
 
         // Redelegate ALICE -> CAROL
         vm.prank(ALICE);
         IGovSol(solDiamond).delegate(CAROL);
         vm.prank(ALICE);
-        IGovFe(feAddr).delegate(CAROL);
+        IGovFe(feGov).delegate(CAROL);
 
         // BOB should lose delegated weight
         uint256 solBobPower = IGovSol(solDiamond).votingPower(BOB);
-        uint256 feBobPower = IGovFe(feAddr).votingPower(BOB);
+        uint256 feBobPower = IGovFe(feGov).votingPower(BOB);
         require(solBobPower == feBobPower, "bob power mismatch after redelegate");
         require(solBobPower == 500, "bob should have only own 500");
 
         // CAROL should gain it
         uint256 solCarolPower = IGovSol(solDiamond).votingPower(CAROL);
-        uint256 feCarolPower = IGovFe(feAddr).votingPower(CAROL);
+        uint256 feCarolPower = IGovFe(feGov).votingPower(CAROL);
         require(solCarolPower == feCarolPower, "carol power mismatch");
         require(solCarolPower == 1000, "carol should have 1000 delegated");
     }
@@ -305,25 +315,25 @@ contract GovernanceBenchTest {
     function test_equivalence_execute() public {
         // Create proposal and vote to meet quorum
         _solPropose(solDiamond, ALICE, "execute test");
-        _fePropose(feAddr, ALICE, 1);
+        _fePropose(feGov, ALICE, 1);
 
         vm.prank(ALICE);
         IGovSol(solDiamond).vote(0, true);
         vm.prank(ALICE);
-        IGovFe(feAddr).vote(0, true);
+        IGovFe(feGov).vote(0, true);
 
         // Advance past voting period
         vm.roll(block.number + VOTING_PERIOD + 1);
 
         // Execute - quorum is 200, ALICE voted 1000 yes, should pass
         bool solResult = IGovSol(solDiamond).execute(0);
-        bool feResult = IGovFe(feAddr).execute(0);
+        bool feResult = IGovFe(feGov).execute(0);
         require(solResult == feResult, "execute result mismatch");
         require(solResult, "should pass with majority yes");
 
         // Verify executed flag
         (,,, bool solExec) = IGovSol(solDiamond).getProposal(0);
-        (,,, bool feExec) = IGovFe(feAddr).getProposal(0);
+        (,,, bool feExec) = IGovFe(feGov).getProposal(0);
         require(solExec && feExec, "executed flag should be true");
     }
 
@@ -331,16 +341,16 @@ contract GovernanceBenchTest {
         // Mint a tiny amount to a new voter so they can propose
         address TINY = address(0xDD);
         IToken(solDiamond).mint(TINY, 1);
-        IToken(feAddr).mint(TINY, 1);
+        IToken(feToken).mint(TINY, 1);
 
         _solPropose(solDiamond, TINY, "low quorum");
-        _fePropose(feAddr, TINY, 2);
+        _fePropose(feGov, TINY, 2);
 
         // Only TINY votes (weight 1), quorum is 200
         vm.prank(TINY);
         IGovSol(solDiamond).vote(0, true);
         vm.prank(TINY);
-        IGovFe(feAddr).vote(0, true);
+        IGovFe(feGov).vote(0, true);
 
         vm.roll(block.number + VOTING_PERIOD + 1);
 
@@ -348,7 +358,7 @@ contract GovernanceBenchTest {
         (bool solOk,) = solDiamond.call(
             abi.encodeWithSelector(IGovSol.execute.selector, uint256(0))
         );
-        (bool feOk,) = feAddr.call(
+        (bool feOk,) = feGov.call(
             abi.encodeWithSelector(IGovFe.execute.selector, uint256(0))
         );
         require(!solOk && !feOk, "both should revert on quorum failure");
@@ -356,28 +366,28 @@ contract GovernanceBenchTest {
 
     function test_equivalence_proposalCount() public {
         require(IGovSol(solDiamond).proposalCount() == 0, "sol count should be 0");
-        require(IGovFe(feAddr).proposalCount() == 0, "fe count should be 0");
+        require(IGovFe(feGov).proposalCount() == 0, "fe count should be 0");
 
         _solPropose(solDiamond, ALICE, "one");
-        _fePropose(feAddr, ALICE, 1);
+        _fePropose(feGov, ALICE, 1);
 
         _solPropose(solDiamond, BOB, "two");
-        _fePropose(feAddr, BOB, 2);
+        _fePropose(feGov, BOB, 2);
 
         uint256 solCount = IGovSol(solDiamond).proposalCount();
-        uint256 feCount = IGovFe(feAddr).proposalCount();
+        uint256 feCount = IGovFe(feGov).proposalCount();
         require(solCount == feCount, "proposal count mismatch");
         require(solCount == 2, "expected 2 proposals");
     }
 
     function test_equivalence_doubleVotePrevention() public {
         _solPropose(solDiamond, ALICE, "no doubles");
-        _fePropose(feAddr, ALICE, 3);
+        _fePropose(feGov, ALICE, 3);
 
         vm.prank(ALICE);
         IGovSol(solDiamond).vote(0, true);
         vm.prank(ALICE);
-        IGovFe(feAddr).vote(0, true);
+        IGovFe(feGov).vote(0, true);
 
         // Second vote should revert on both
         vm.prank(ALICE);
@@ -385,7 +395,7 @@ contract GovernanceBenchTest {
             abi.encodeWithSelector(IGovSol.vote.selector, uint256(0), true)
         );
         vm.prank(ALICE);
-        (bool feOk,) = feAddr.call(
+        (bool feOk,) = feGov.call(
             abi.encodeWithSelector(IGovFe.vote.selector, uint256(0), true)
         );
         require(!solOk && !feOk, "both should revert on double vote");
@@ -393,7 +403,7 @@ contract GovernanceBenchTest {
 
     function test_equivalence_votingPeriodEnforcement() public {
         _solPropose(solDiamond, ALICE, "period test");
-        _fePropose(feAddr, ALICE, 4);
+        _fePropose(feGov, ALICE, 4);
 
         // Advance past voting period
         vm.roll(block.number + VOTING_PERIOD + 1);
@@ -404,7 +414,7 @@ contract GovernanceBenchTest {
             abi.encodeWithSelector(IGovSol.vote.selector, uint256(0), true)
         );
         vm.prank(ALICE);
-        (bool feOk,) = feAddr.call(
+        (bool feOk,) = feGov.call(
             abi.encodeWithSelector(IGovFe.vote.selector, uint256(0), true)
         );
         require(!solOk && !feOk, "both should revert after voting period");
@@ -417,7 +427,7 @@ contract GovernanceBenchTest {
             abi.encodeWithSelector(IToken.mint.selector, ALICE, uint256(100))
         );
         vm.prank(ALICE);
-        (bool feOk,) = feAddr.call(
+        (bool feOk,) = feToken.call(
             abi.encodeWithSelector(IToken.mint.selector, ALICE, uint256(100))
         );
         require(!solOk && !feOk, "both should revert on non-owner mint");
@@ -428,18 +438,18 @@ contract GovernanceBenchTest {
         vm.prank(ALICE);
         IGovSol(solDiamond).delegate(BOB);
         vm.prank(ALICE);
-        IGovFe(feAddr).delegate(BOB);
+        IGovFe(feGov).delegate(BOB);
 
         _solPropose(solDiamond, BOB, "delegated vote");
-        _fePropose(feAddr, BOB, 5);
+        _fePropose(feGov, BOB, 5);
 
         vm.prank(BOB);
         IGovSol(solDiamond).vote(0, true);
         vm.prank(BOB);
-        IGovFe(feAddr).vote(0, true);
+        IGovFe(feGov).vote(0, true);
 
         (uint256 solYes,,,) = IGovSol(solDiamond).getProposal(0);
-        (uint256 feYes,,,) = IGovFe(feAddr).getProposal(0);
+        (uint256 feYes,,,) = IGovFe(feGov).getProposal(0);
         require(solYes == feYes, "delegated vote weight mismatch");
         require(solYes == 1500, "expected 1500 (500 own + 1000 delegated)");
     }
@@ -455,15 +465,15 @@ contract GovernanceBenchTest {
         vm.prank(ALICE);
         bool solOk = IToken(solDiamond).transfer(BOB, amount);
         vm.prank(ALICE);
-        bool feOk = IToken(feAddr).transfer(BOB, amount);
+        bool feOk = IToken(feToken).transfer(BOB, amount);
 
         require(solOk == feOk, "fuzz: transfer result mismatch");
         require(
-            IToken(solDiamond).balanceOf(ALICE) == IToken(feAddr).balanceOf(ALICE),
+            IToken(solDiamond).balanceOf(ALICE) == IToken(feToken).balanceOf(ALICE),
             "fuzz: alice balance mismatch"
         );
         require(
-            IToken(solDiamond).balanceOf(BOB) == IToken(feAddr).balanceOf(BOB),
+            IToken(solDiamond).balanceOf(BOB) == IToken(feToken).balanceOf(BOB),
             "fuzz: bob balance mismatch"
         );
     }
@@ -475,19 +485,19 @@ contract GovernanceBenchTest {
         address VOTER = address(0xFE);
 
         IToken(solDiamond).mint(VOTER, mintAmount);
-        IToken(feAddr).mint(VOTER, mintAmount);
+        IToken(feToken).mint(VOTER, mintAmount);
 
         // Propose and vote
         _solPropose(solDiamond, VOTER, "fuzz vote");
-        _fePropose(feAddr, VOTER, 99);
+        _fePropose(feGov, VOTER, 99);
 
         vm.prank(VOTER);
         IGovSol(solDiamond).vote(0, true);
         vm.prank(VOTER);
-        IGovFe(feAddr).vote(0, true);
+        IGovFe(feGov).vote(0, true);
 
         (uint256 solYes,,,) = IGovSol(solDiamond).getProposal(0);
-        (uint256 feYes,,,) = IGovFe(feAddr).getProposal(0);
+        (uint256 feYes,,,) = IGovFe(feGov).getProposal(0);
         require(solYes == feYes, "fuzz: vote weight mismatch");
         require(solYes == mintAmount, "fuzz: vote weight should equal minted amount");
     }
@@ -500,21 +510,21 @@ contract GovernanceBenchTest {
         address DELEGATEE = address(0xEE);
 
         IToken(solDiamond).mint(DELEGATOR, amount);
-        IToken(feAddr).mint(DELEGATOR, amount);
+        IToken(feToken).mint(DELEGATOR, amount);
 
         vm.prank(DELEGATOR);
         IGovSol(solDiamond).delegate(DELEGATEE);
         vm.prank(DELEGATOR);
-        IGovFe(feAddr).delegate(DELEGATEE);
+        IGovFe(feGov).delegate(DELEGATEE);
 
         uint256 solPower = IGovSol(solDiamond).votingPower(DELEGATEE);
-        uint256 fePower = IGovFe(feAddr).votingPower(DELEGATEE);
+        uint256 fePower = IGovFe(feGov).votingPower(DELEGATEE);
         require(solPower == fePower, "fuzz: delegation power mismatch");
         require(solPower == amount, "fuzz: delegated power should equal minted amount");
 
         // Verify delegator's own power is just their balance (no delegation to them)
         uint256 solDelegatorPower = IGovSol(solDiamond).votingPower(DELEGATOR);
-        uint256 feDelegatorPower = IGovFe(feAddr).votingPower(DELEGATOR);
+        uint256 feDelegatorPower = IGovFe(feGov).votingPower(DELEGATOR);
         require(
             solDelegatorPower == feDelegatorPower,
             "fuzz: delegator power mismatch"
@@ -532,7 +542,7 @@ contract GovernanceBenchTest {
     }
 
     function testGas_fe_mint() public {
-        IToken(feGas).mint(ALICE, 100);
+        IToken(feTokenGas).mint(ALICE, 100);
     }
 
     // --- Token: transfer ---
@@ -544,7 +554,7 @@ contract GovernanceBenchTest {
 
     function testGas_fe_transfer() public {
         vm.prank(ALICE);
-        IToken(feGas).transfer(BOB, 50);
+        IToken(feTokenGas).transfer(BOB, 50);
     }
 
     // --- Token: balanceOf ---
@@ -554,7 +564,7 @@ contract GovernanceBenchTest {
     }
 
     function testGas_fe_balanceOf() public view {
-        IToken(feGas).balanceOf(ALICE);
+        IToken(feTokenGas).balanceOf(ALICE);
     }
 
     // --- Governance: propose ---
@@ -566,7 +576,7 @@ contract GovernanceBenchTest {
 
     function testGas_fe_propose() public {
         vm.prank(ALICE);
-        IGovFe(feGas).propose(42);
+        IGovFe(feGovGas).propose(42);
     }
 
     // --- Governance: vote ---
@@ -584,11 +594,11 @@ contract GovernanceBenchTest {
     function testGas_fe_vote() public {
         vm.pauseGasMetering();
         vm.prank(ALICE);
-        IGovFe(feGas).propose(1);
+        IGovFe(feGovGas).propose(1);
         vm.resumeGasMetering();
 
         vm.prank(ALICE);
-        IGovFe(feGas).vote(0, true);
+        IGovFe(feGovGas).vote(0, true);
     }
 
     // --- Governance: delegate ---
@@ -600,7 +610,7 @@ contract GovernanceBenchTest {
 
     function testGas_fe_delegate() public {
         vm.prank(ALICE);
-        IGovFe(feGas).delegate(BOB);
+        IGovFe(feGovGas).delegate(BOB);
     }
 
     // --- Governance: execute ---
@@ -620,12 +630,12 @@ contract GovernanceBenchTest {
     function testGas_fe_execute() public {
         vm.pauseGasMetering();
         vm.prank(ALICE);
-        IGovFe(feGas).propose(1);
+        IGovFe(feGovGas).propose(1);
         vm.prank(ALICE);
-        IGovFe(feGas).vote(0, true);
+        IGovFe(feGovGas).vote(0, true);
         vm.roll(block.number + VOTING_PERIOD + 1);
         vm.resumeGasMetering();
 
-        IGovFe(feGas).execute(0);
+        IGovFe(feGovGas).execute(0);
     }
 }
