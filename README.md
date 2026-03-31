@@ -12,8 +12,8 @@ Side-by-side Fe and Solidity implementations of Ethereum contract patterns. Each
 | [math](examples/math) | 512-bit mulDiv (Uniswap V3 FullMath) | yes |
 | [merkle](examples/merkle) | Sorted-pair Merkle proof verification | yes |
 | [amm](examples/amm) | Constant-product AMM (swap, add liquidity) | yes |
-| [escrow](examples/escrow) | Escrow with typed state machine | |
-| [governance](examples/governance) | Token + governance (vs Solidity Diamond) | |
+| [escrow](examples/escrow) | Escrow with typed state machine | yes |
+| [governance](examples/governance) | Token + governance (vs Solidity Diamond) | yes |
 | [verifier](examples/verifier) | Plonk and Halo2 proof verification | |
 | [poseidon](examples/poseidon) | Poseidon hash (T=3, BN254) | excluded ([sonatina#232](https://github.com/fe-lang/sonatina/issues/232)) |
 
@@ -28,10 +28,12 @@ Shared libraries in `shared/`:
 fe build .
 
 # Run Foundry equivalence + gas tests
-cd examples/erc20 && forge test -vv
-cd examples/math  && forge test -vv
-cd examples/merkle && forge test -vv
-cd examples/amm   && forge test -vv
+cd examples/erc20      && forge test -vv
+cd examples/math       && forge test -vv
+cd examples/merkle     && forge test -vv
+cd examples/amm        && forge test -vv
+cd examples/escrow     && forge test -vv
+cd examples/governance && forge test -vv
 ```
 
 Requires [Fe](https://github.com/ethereum/fe) and [Foundry](https://book.getfoundry.sh/).

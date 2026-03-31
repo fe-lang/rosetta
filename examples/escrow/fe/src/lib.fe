@@ -52,6 +52,7 @@ pub contract Escrow uses (ctx: Ctx) {
     }
 
     recv EscrowMsg {
+        #[payable]
         Deposit uses (mut store, ctx) {
             assert(is_empty(s: store.state))
             store.balance = ctx.value()
