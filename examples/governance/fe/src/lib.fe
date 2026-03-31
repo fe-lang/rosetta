@@ -1,0 +1,203 @@
+/// Token + Governance contract.
+///
+/// Same state transitions as the Solidity EIP-2535 Diamond (Diamond.sol).
+/// The Solidity version needs ~370 lines of Diamond infrastructure
+/// (proxy, LibDiamond, facet routing, storage slot hashing, deployer
+/// wiring) before a single line of business logic. Fe needs zero.
+///
+/// Each handler's `uses` clause declares exactly which storage it
+/// touches and whether it reads or writes. No hidden globals.
+
+use std::abi::sol
+
+// ---- Messages ----
+// These ARE the interface. In Solidity, you need IDiamondCut,
+// IDiamondLoupe, IERC165, IERC173, plus the facet contracts.
+// In Fe, the msg type is the interface AND the dispatch table.
+
+msg TokenMsg {
+    #[selector = sol("mint(address,uint256)")]
+    Mint { to: Address, amount: u256 },
+    #[selector = sol("transfer(address,uint256)")]
+    Transfer { to: Address, amount: u256 } -> bool,
+    #[selector = sol("balanceOf(address)")]
+    BalanceOf { account: Address } -> u256,
+    #[selector = sol("totalSupply()")]
+    TotalSupply -> u256,
+}
+
+msg GovMsg {
+    #[selector = sol("propose(uint256)")]
+    Propose { description: u256 } -> u256,
+    #[selector = sol("vote(uint256,bool)")]
+    Vote { proposal_id: u256, support: bool },
+    #[selector = sol("delegate(address)")]
+    Delegate { to: Address },
+    #[selector = sol("execute(uint256)")]
+    Execute { proposal_id: u256 } -> bool,
+    #[selector = sol("getProposal(uint256)")]
+    GetProposal { proposal_id: u256 } -> (u256, u256, u256, bool),
+    #[selector = sol("proposalCount()")]
+    ProposalCount -> u256,
+    #[selector = sol("getDelegate(address)")]
+    GetDelegate { account: Address } -> Address,
+    #[selector = sol("votingPower(address)")]
+    VotingPower { account: Address } -> u256,
+}
+
+// ---- Storage ----
+// In Solidity Diamond, each facet must manually hash a unique storage
+// slot and use assembly to load it. Miss a hash, get a collision.
+// In Fe, the compiler handles storage layout. No manual slots.
+
+struct TokenStore {
+    total_supply: u256,
+    balances: StorageMap<Address, u256>,
+}
+
+struct GovStore {
+    proposal_count: u256,
+    voting_period: u256,
+    quorum: u256,
+    // Proposal fields as parallel maps (Fe has no storage structs-in-maps yet)
+    vote_starts: StorageMap<u256, u256>,
+    vote_ends: StorageMap<u256, u256>,
+    yes_votes: StorageMap<u256, u256>,
+    no_votes: StorageMap<u256, u256>,
+    executed: StorageMap<u256, bool>,
+    // Double-vote prevention: (proposal_id, voter) -> has_voted
+    has_voted: StorageMap<(u256, Address), bool>,
+    // Delegation
+    delegates: StorageMap<Address, Address>,
+    delegated_weight: StorageMap<Address, u256>,
+}
+
+// Solidity Diamond puts owner in LibDiamond.DiamondStorage.
+// Fe makes ownership explicit storage, visible in `uses` clauses.
+struct OwnerStore {
+    owner: Address,
+}
+
+// ---- Contract ----
+
+pub contract MultiApp uses (ctx: Ctx) {
+    mut token_store: TokenStore
+    mut gov_store: GovStore
+    mut owner_store: OwnerStore
+
+    init(voting_period: u256, quorum: u256) uses (mut owner_store, mut gov_store, ctx) {
+        owner_store.owner = ctx.caller()
+        gov_store.voting_period = voting_period
+        gov_store.quorum = quorum
+    }
+
+    recv TokenMsg {
+        Mint { to, amount } uses (mut token_store, owner_store, ctx) {
+            assert(ctx.caller() == owner_store.owner)
+            token_store.total_supply += amount
+            token_store.balances.set(key: to, value: token_store.balances.get(key: to) + amount)
+        }
+
+        Transfer { to, amount } -> bool uses (mut token_store, ctx) {
+            let from = ctx.caller()
+            let bal = token_store.balances.get(key: from)
+            if bal < amount { return false }
+            token_store.balances.set(key: from, value: bal - amount)
+            token_store.balances.set(key: to, value: token_store.balances.get(key: to) + amount)
+            true
+        }
+
+        BalanceOf { account } -> u256 uses (token_store) {
+            token_store.balances.get(key: account)
+        }
+
+        TotalSupply -> u256 uses (token_store) { token_store.total_supply }
+    }
+
+    recv GovMsg {
+        Propose { description } -> u256 uses (mut gov_store, token_store, ctx) {
+            assert(token_store.balances.get(key: ctx.caller()) > 0)
+
+            let id = gov_store.proposal_count
+            gov_store.proposal_count = id + 1
+
+            gov_store.vote_starts.set(key: id, value: ctx.block_number())
+            gov_store.vote_ends.set(key: id, value: ctx.block_number() + gov_store.voting_period)
+
+            id
+        }
+
+        Vote { proposal_id, support } uses (mut gov_store, token_store, ctx) {
+            let caller = ctx.caller()
+            let block = ctx.block_number()
+
+            assert(block >= gov_store.vote_starts.get(key: proposal_id))
+            assert(block <= gov_store.vote_ends.get(key: proposal_id))
+            assert(!gov_store.has_voted.get(key: (proposal_id, caller)))
+
+            gov_store.has_voted.set(key: (proposal_id, caller), value: true)
+
+            let weight = token_store.balances.get(key: caller)
+                       + gov_store.delegated_weight.get(key: caller)
+            assert(weight > 0)
+
+            if support {
+                let v = gov_store.yes_votes.get(key: proposal_id)
+                gov_store.yes_votes.set(key: proposal_id, value: v + weight)
+            } else {
+                let v = gov_store.no_votes.get(key: proposal_id)
+                gov_store.no_votes.set(key: proposal_id, value: v + weight)
+            }
+        }
+
+        Delegate { to } uses (mut gov_store, token_store, ctx) {
+            let caller = ctx.caller()
+            let weight = token_store.balances.get(key: caller)
+
+            let old_delegate = gov_store.delegates.get(key: caller)
+            if old_delegate.inner != 0 {
+                let old_w = gov_store.delegated_weight.get(key: old_delegate)
+                gov_store.delegated_weight.set(key: old_delegate, value: old_w - weight)
+            }
+
+            gov_store.delegates.set(key: caller, value: to)
+
+            if to.inner != 0 {
+                let new_w = gov_store.delegated_weight.get(key: to)
+                gov_store.delegated_weight.set(key: to, value: new_w + weight)
+            }
+        }
+
+        Execute { proposal_id } -> bool uses (mut gov_store, ctx) {
+            assert(ctx.block_number() > gov_store.vote_ends.get(key: proposal_id))
+            assert(!gov_store.executed.get(key: proposal_id))
+
+            let yes = gov_store.yes_votes.get(key: proposal_id)
+            let no = gov_store.no_votes.get(key: proposal_id)
+            assert(yes + no >= gov_store.quorum)
+
+            gov_store.executed.set(key: proposal_id, value: true)
+            yes > no
+        }
+
+        GetProposal { proposal_id } -> (u256, u256, u256, bool) uses (gov_store) {
+            (
+                gov_store.yes_votes.get(key: proposal_id),
+                gov_store.no_votes.get(key: proposal_id),
+                gov_store.vote_ends.get(key: proposal_id),
+                gov_store.executed.get(key: proposal_id),
+            )
+        }
+
+        ProposalCount -> u256 uses (gov_store) { gov_store.proposal_count }
+
+        GetDelegate { account } -> Address uses (gov_store) {
+            gov_store.delegates.get(key: account)
+        }
+
+        VotingPower { account } -> u256 uses (token_store, gov_store) {
+            token_store.balances.get(key: account)
+                + gov_store.delegated_weight.get(key: account)
+        }
+    }
+}

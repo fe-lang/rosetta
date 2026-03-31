@@ -13,7 +13,7 @@ Side-by-side Fe and Solidity implementations of Ethereum contract patterns. Each
 | [merkle](examples/merkle) | Sorted-pair Merkle proof verification | yes |
 | [amm](examples/amm) | Constant-product AMM (swap, add liquidity) | yes |
 | [escrow](examples/escrow) | Escrow with typed state machine | |
-| [diamond](examples/diamond) | Multi-facet contract (token + governance) | |
+| [governance](examples/governance) | Token + governance (vs Solidity Diamond) | |
 | [verifier](examples/verifier) | Plonk and Halo2 proof verification | |
 | [poseidon](examples/poseidon) | Poseidon hash (T=3, BN254) | excluded ([sonatina#232](https://github.com/fe-lang/sonatina/issues/232)) |
 
