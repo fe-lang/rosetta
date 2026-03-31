@@ -1,4 +1,4 @@
-> **Experimental** — For illustration and benchmarking only. Not audited.
+> 🔬 **Experimental** — For illustration and benchmarking only. Not audited.
 
 # rosetta
 
