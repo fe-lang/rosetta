@@ -1,4 +1,4 @@
-use std::evm::crypto::{addmod, mulmod, mstore, mload, raw_staticcall, gas, modexp}
+use std::evm::crypto::{addmod, mulmod, modexp}
 
 /// BN254 scalar field order — single source of truth.
 pub const F_Q: u256 = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
@@ -26,16 +26,7 @@ pub fn sub<const MODULUS: u256>(_ a: u256, _ b: u256) -> u256 {
 
 /// Modular exponentiation via the modexp precompile (address 0x05).
 pub fn exp<const MODULUS: u256>(_ base: u256, _ exponent: u256) -> u256 {
-    let ptr = std::evm::alloc(192)
-    mstore(ptr, 32)        // base length
-    mstore(ptr + 32, 32)   // exponent length
-    mstore(ptr + 64, 32)   // modulus length
-    mstore(ptr + 96, base)
-    mstore(ptr + 128, exponent)
-    mstore(ptr + 160, MODULUS)
-    let success = raw_staticcall(gas(), 5, ptr, 192, ptr, 32)
-    if success == 0 { std::evm::assert(false) }
-    mload(ptr)
+    modexp(base, exponent, MODULUS)
 }
 
 /// Modular inverse: a^(-1) mod MODULUS via Fermat's little theorem.

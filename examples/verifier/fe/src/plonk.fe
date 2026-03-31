@@ -3,7 +3,8 @@ use super::field
 use super::msm
 use super::field::F_Q
 use super::transcript::Transcript
-use std::evm::crypto::{mstore, mstore8, mload, raw_staticcall, gas, addmod, mulmod}
+use std::evm::crypto::{addmod, mulmod, sha256}
+use std::evm::{Evm, RawMem}
 
 /// Plonk proof verification on BN254.
 /// Ported from SP1's Rust verifier (crates/verifier/src/plonk/).
