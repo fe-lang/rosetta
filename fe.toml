@@ -2,3 +2,5 @@
 name = "rosetta-fe"
 version = "0.1.0"
 members = ["examples/*/fe", "shared/*/fe"]
+# poseidon excluded — triggers Sonatina stack allocator crash (pre-existing)
+exclude = ["examples/poseidon/fe"]
