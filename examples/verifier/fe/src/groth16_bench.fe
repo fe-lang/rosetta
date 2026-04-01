@@ -5,6 +5,7 @@ use super::groth16::{VerifyingKey, Proof, ScalarInput, verify}
 
 /// Verification key for the "factor 33" circuit (from Grant's fe-crypto).
 /// Proves knowledge of factors of 33 (3 × 11) without revealing them.
+#[arithmetic(unchecked)]
 fn test_vk() -> VerifyingKey<1, 2> {
     VerifyingKey {
         alpha1: G1Point {
@@ -43,6 +44,7 @@ fn test_vk() -> VerifyingKey<1, 2> {
 }
 
 /// Valid proof that 33 = 3 × 11 (from Grant's fe-crypto test vectors).
+#[arithmetic(unchecked)]
 fn test_proof() -> Proof {
     Proof {
         a: G1Point {

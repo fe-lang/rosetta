@@ -1,6 +1,7 @@
 use ec::bn254::G1Point
 
 /// Multi-scalar multiplication: sum(scalars[i] * points[i]).
+#[arithmetic(unchecked)]
 pub fn msm<const N: usize>(_ points: [G1Point; N], _ scalars: [u256; N]) -> G1Point {
     let mut acc = points[0].scale(s: scalars[0])
     for i in 1..N {

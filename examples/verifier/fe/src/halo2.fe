@@ -80,6 +80,7 @@ pub struct Halo2Proof {
 ///   ...
 ///
 /// In Fe: a loop.
+#[arithmetic(unchecked)]
 pub fn read_field_elements_from_calldata(offset: u256, count: usize) -> [u256; 32] uses (evm: mut Evm) {
     let mut elems: [u256; 32] = [0; 32]
     for i in 0..count {
@@ -99,6 +100,7 @@ pub fn read_field_elements_from_calldata(offset: u256, count: usize) -> [u256; 3
 ///   }
 ///
 /// In Fe: one function, same semantics.
+#[arithmetic(unchecked)]
 pub fn validate_ec_point(p: G1Point) -> bool {
     let f_p: u256 = 0x30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd47
     if p.x >= f_p { return false }
@@ -120,6 +122,7 @@ pub fn validate_ec_point(p: G1Point) -> bool {
 ///   ...
 ///
 /// In Fe: append to transcript, squeeze.
+#[arithmetic(unchecked)]
 pub fn derive_challenges(
     vk: Halo2VK, proof: Halo2Proof,
 ) -> (u256, u256, u256, u256, u256) uses (evm: mut Evm) {
@@ -172,6 +175,7 @@ pub fn derive_challenges(
 ///   success := and(eq(staticcall(gas(), 0x6, ...), 1), success) // ecAdd
 ///
 /// In Fe: msm::msm<N>() — one function call.
+#[arithmetic(unchecked)]
 pub fn kzg_accumulate(
     commitments: [G1Point; 21],
     scalars: [u256; 21],
@@ -185,6 +189,7 @@ pub fn kzg_accumulate(
 /// hand-laid-out memory.
 ///
 /// In Fe: use our bn254 pairing primitive.
+#[arithmetic(unchecked)]
 pub fn kzg_pairing_check(
     p: G1Point, q: G1Point,
     g2_srs: G2Point,

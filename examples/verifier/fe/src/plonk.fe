@@ -6,6 +6,7 @@ use super::transcript::Transcript
 use std::evm::crypto::{addmod, mulmod, sha256}
 use std::evm::{Evm, RawMem}
 
+
 /// Plonk proof verification on BN254.
 /// Ported from SP1's Rust verifier (crates/verifier/src/plonk/).
 /// Rust: 904 lines across 4 files. Solidity: 1341 lines of assembly.
@@ -60,6 +61,7 @@ const HASH_FR_LEN_IN_BYTES: u256 = 48  // 0x30
 const HASH_FR_SIZE_DOMAIN: u256 = 11   // length of "BSB22-Plonk"
 const HASH_FR_BB: u256 = 340282366920938463463374607431768211456 // 2^128
 
+#[arithmetic(unchecked)]
 fn hash_fr(_ x: u256, _ y: u256) -> u256 uses (evm: mut Evm) {
     let ptr = std::evm::alloc(256)
 
@@ -131,12 +133,14 @@ fn hash_fr(_ x: u256, _ y: u256) -> u256 uses (evm: mut Evm) {
 // --- Core verification ---
 
 /// Compute zeta^n (modular exponentiation via field::exp)
+#[arithmetic(unchecked)]
 fn pow_mod(_ base: u256, _ exp: u256) -> u256 {
     field::exp<F_Q>(base, exp)
 }
 
 /// Batch invert: given [a0, a1, ...], return [1/a0, 1/a1, ...] using Montgomery's trick.
 /// Uses n-1 multiplications + 1 inversion instead of n inversions.
+#[arithmetic(unchecked)]
 fn batch_invert_2(_ a: u256, _ b: u256) -> (u256, u256) {
     let prod = field::mul<F_Q>(a, b)
     let prod_inv = field::inv<F_Q>(prod)
@@ -147,6 +151,7 @@ fn batch_invert_2(_ a: u256, _ b: u256) -> (u256, u256) {
 
 /// Debug: compute and return challenge hashes for comparison.
 /// Returns (gamma_raw, beta_raw, alpha_raw, zeta_raw)
+#[arithmetic(unchecked)]
 pub fn debug_challenges(
     vk: own PlonkVK, proof: own PlonkProof,
     pub_inputs: [u256; 5],
@@ -198,6 +203,7 @@ pub fn debug_challenges(
 }
 
 /// Debug: return (pi_total, const_lin) for verification debugging.
+#[arithmetic(unchecked)]
 pub fn debug_pi(
     vk: own PlonkVK, proof: own PlonkProof,
     pub_inputs: [u256; 5],
@@ -271,6 +277,7 @@ pub fn debug_pi(
 
 /// Verify a Plonk proof with 2 public inputs (SP1 standard).
 /// Follows SP1 verify_plonk_algebraic() from verify.rs.
+#[arithmetic(unchecked)]
 pub fn verify(
     vk: own PlonkVK, proof: own PlonkProof,
     pub_inputs: [u256; 5],
@@ -546,6 +553,7 @@ pub fn verify(
 // Known values from a real gnark Plonk proof (SP1 test vectors).
 
 #[test]
+#[arithmetic(unchecked)]
 fn test_hash_fr() uses (evm: mut Evm) {
     // BSB22 commitment from the test proof
     let x: u256 = 0x27086e886de4f31d65e997d9dd08e35dd6590101d9185db7c8c5dd7dd9348c9c
@@ -555,6 +563,7 @@ fn test_hash_fr() uses (evm: mut Evm) {
 }
 
 #[test]
+#[arithmetic(unchecked)]
 fn test_field_inv() {
     // inv(2) in F_Q should satisfy 2 * inv(2) == 1
     let two: u256 = 2
@@ -564,6 +573,7 @@ fn test_field_inv() {
 }
 
 #[test]
+#[arithmetic(unchecked)]
 fn test_pow_mod() {
     // omega^n should be 1 (omega is an n-th root of unity)
     let omega: u256 = 5709868443893258075976348696661355716898495876243883251619397131511003808859
@@ -573,6 +583,7 @@ fn test_pow_mod() {
 }
 
 #[test]
+#[arithmetic(unchecked)]
 fn test_transcript_gamma() uses (evm: mut Evm) {
     // Test that the transcript produces the correct gamma hash.
     // This uses the hardcoded VK from plonk_bench and known proof data.
@@ -585,6 +596,7 @@ fn test_transcript_gamma() uses (evm: mut Evm) {
 }
 
 #[test]
+#[arithmetic(unchecked)]
 fn test_batch_invert() {
     let a: u256 = 7
     let b: u256 = 13
@@ -594,6 +606,7 @@ fn test_batch_invert() {
 }
 
 #[test]
+#[arithmetic(unchecked)]
 fn test_const_lin() {
     // Verify the const_lin computation using known challenge + proof values.
     let one: u256 = 1
@@ -633,6 +646,7 @@ fn test_const_lin() {
 }
 
 #[test]
+#[arithmetic(unchecked)]
 fn test_linearization_coefficients() {
     let one: u256 = 1
     let alpha: u256 = 0x0d56ec294e1530d65b957bb4ea879f740becd8a52e1d241445972ce49ba6048a
@@ -683,6 +697,7 @@ fn test_linearization_coefficients() {
 }
 
 #[test]
+#[arithmetic(unchecked)]
 fn test_verify_end_to_end() uses (evm: mut Evm) {
     // Construct the VK (same as plonk_bench::example_vk)
     let vk = PlonkVK {
@@ -925,6 +940,7 @@ fn test_verify_end_to_end() uses (evm: mut Evm) {
 }
 
 #[test]
+#[arithmetic(unchecked)]
 fn test_kzg_fold_scalars() {
     // Verify that gamma_kzg powers are computed correctly
     // Given a known gamma_kzg, the powers should be [1, g, g^2, g^3, ...]
@@ -950,6 +966,7 @@ fn test_kzg_fold_scalars() {
 }
 
 #[test]
+#[arithmetic(unchecked)]
 fn test_v6_gamma_label_and_vk() uses (evm: mut Evm) {
     // Verify that SHA256("gamma" + first VK point) matches expected
     let mut t = Transcript::new()
@@ -962,6 +979,7 @@ fn test_v6_gamma_label_and_vk() uses (evm: mut Evm) {
 }
 
 #[test]
+#[arithmetic(unchecked)]
 fn test_v6_gamma_challenge() uses (evm: mut Evm) {
     // v6 VK first point: S1_X
     let mut t = Transcript::new()
@@ -1014,6 +1032,7 @@ fn test_v6_gamma_challenge() uses (evm: mut Evm) {
 }
 
 #[test]
+#[arithmetic(unchecked)]
 fn test_v6_all_challenges() uses (evm: mut Evm) {
     // Compute all 4 challenges for v6 and compare
     let gamma_raw: u256 = 0x86c4ac45a0be843cc24c65d9d559dd135a4ecad0f433372fa79f7979c9c6705c
@@ -1041,6 +1060,7 @@ fn test_v6_all_challenges() uses (evm: mut Evm) {
 }
 
 #[test]
+#[arithmetic(unchecked)]
 fn test_v6_zeta_challenge() uses (evm: mut Evm) {
     let alpha_raw: u256 = 0x8b4c0cc8930c7effedf6847ec5b115c7b78b3b9a74ff18c9fa4ead79e39e14dc
 
@@ -1062,6 +1082,7 @@ fn test_v6_zeta_challenge() uses (evm: mut Evm) {
 }
 
 #[test]
+#[arithmetic(unchecked)]
 fn test_v6_pi_computation() uses (evm: mut Evm) {
     let one: u256 = 1
     let zeta_raw: u256 = 0x9cfa5df065c8d2170b994be2f13f26328184096125b806282cc4482082fb210d
@@ -1114,6 +1135,7 @@ fn test_v6_pi_computation() uses (evm: mut Evm) {
 }
 
 #[test]
+#[arithmetic(unchecked)]
 fn test_v6_const_lin() {
     let one: u256 = 1
     let zeta_raw: u256 = 0x9cfa5df065c8d2170b994be2f13f26328184096125b806282cc4482082fb210d
@@ -1153,6 +1175,7 @@ fn test_v6_const_lin() {
 }
 
 #[test]
+#[arithmetic(unchecked)]
 fn test_v6_verify_end_to_end() uses (evm: mut Evm) {
     let vk = PlonkVK {
         n: 33554432,

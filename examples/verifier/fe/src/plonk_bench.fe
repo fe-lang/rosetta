@@ -4,6 +4,7 @@ use ec::bn254::{G1Point, G2Point}
 use super::plonk::{PlonkVK, PlonkProof, verify, debug_challenges}
 
 /// Plonk verification key from gnark PlonkVerifier v6.0.0 (latest SP1).
+#[arithmetic(unchecked)]
 fn example_vk() -> PlonkVK {
     PlonkVK {
         n: 33554432,
@@ -33,6 +34,7 @@ fn example_vk() -> PlonkVK {
     }
 }
 
+#[arithmetic(unchecked)]
 fn parse_proof(proof_offset: u256) -> PlonkProof uses (evm: mut Evm) {
     PlonkProof {
         lro: [
@@ -85,6 +87,7 @@ pub contract VKFieldTest {
 }
 
 #[test]
+#[arithmetic(unchecked)]
 fn test_vk_field_via_contract() uses (evm: mut Evm) {
     let c = evm.create2<VKFieldTest>(value: 0, args: (), salt: 0)
     assert(c.inner != 0)

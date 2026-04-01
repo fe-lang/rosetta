@@ -45,6 +45,7 @@ pub struct Proof {
 
 /// Verify a Groth16 proof with N public inputs.
 /// Inputs are validated on construction (ScalarInput::new asserts < SCALAR_FIELD).
+#[arithmetic(unchecked)]
 pub fn verify<const N: usize, const IC_LEN: usize>(vk: VerifyingKey<N, IC_LEN>, proof: Proof, inputs: [ScalarInput; N]) -> bool uses (evm: mut Evm) {
     // Compute vk_x = IC[0] + sum(inputs[i] * IC[i+1])
     let mut vk_x = vk.ic[0]
