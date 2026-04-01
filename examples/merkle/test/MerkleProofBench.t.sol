@@ -31,14 +31,16 @@ contract MerkleProofBenchTest {
         vm.pauseGasMetering();
 
         uint256 optLevel = vm.envOr("FE_SONA_OPT_LEVEL", uint256(2));
-        string[] memory cmd = new string[](7);
+        string[] memory cmd = new string[](9);
         cmd[0] = "fe";
         cmd[1] = "build";
         cmd[2] = "--backend";
         cmd[3] = "sonatina";
         cmd[4] = "-O";
         cmd[5] = optLevel == 0 ? "0" : optLevel == 1 ? "1" : "2";
-        cmd[6] = "../..";
+        cmd[6] = "--emit";
+        cmd[7] = "bytecode";
+        cmd[8] = "../..";
         vm.ffi(cmd);
 
         string[] memory readCmd = new string[](3);
