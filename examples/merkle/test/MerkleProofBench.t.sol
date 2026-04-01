@@ -40,7 +40,7 @@ contract MerkleProofBenchTest {
         cmd[5] = optLevel == 0 ? "0" : optLevel == 1 ? "1" : "2";
         cmd[6] = "--emit";
         cmd[7] = "bytecode";
-        cmd[8] = "../..";
+        cmd[8] = "fe";
         vm.ffi(cmd);
 
         string[] memory readCmd = new string[](3);
