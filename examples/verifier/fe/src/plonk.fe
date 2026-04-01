@@ -331,7 +331,7 @@ pub fn verify(
     t = t.write_g1(p:proof.h[0])
     t = t.write_g1(p:proof.h[1])
     t = t.write_g1(p:proof.h[2])
-    let (zeta, zeta_raw, _) = t.squeeze()
+    let (zeta, zeta_raw, t_done) = t.squeeze()
 
     // --- 2. Compute zeta^n - 1 and L1(zeta) ---
     let zeta_power_n = pow_mod(zeta, vk.n)
@@ -443,8 +443,8 @@ pub fn verify(
     // digests_to_fold = [linearized, L, R, O, s1, s2, qcp[0]]
     // claimed_values = [const_lin, l, r, o, s1, s2, qc_val]
 
-    // Derive gamma_kzg for folding
-    let mut t2 = Transcript::new()
+    // Derive gamma_kzg for folding — reuse t's buffer (t is done after squeeze)
+    let mut t2 = t_done.reset()
     t2 = t2.write_label(label: 0x67616d6d61000000000000000000000000000000000000000000000000000000, label_len: 5) // "gamma"
     t2 = t2.write_u256(val:zeta)
     // Write all 7 digests
@@ -465,8 +465,7 @@ pub fn verify(
     t2 = t2.write_u256(val:qc_val)
     // Write zu (data transcript)
     t2 = t2.write_u256(val:zu)
-    let (gamma_kzg, _, _) = t2.squeeze()
-    // gamma_kzg raw hash not needed (separate transcript)
+    let (gamma_kzg, _, t2_done) = t2.squeeze()
 
     // Compute gamma_kzg^i for i = 0..6
     let g0: u256 = 1
@@ -502,7 +501,7 @@ pub fn verify(
     // gnark flow: fold_proof() binds gamma_kzg to global transcript under "u",
     // then derive_randomness(fs, "u", [folded_digest, Z, batched_h, z_shifted_h])
     // computes SHA256("u" || zeta_raw_hash || gamma_kzg || folded_digest || Z || batched_h || z_shifted_h)
-    let mut t3 = Transcript::new()
+    let mut t3 = t2_done.reset()
     t3 = t3.write_label(label: 0x7500000000000000000000000000000000000000000000000000000000000000, label_len: 1) // "u"
     t3 = t3.write_u256(val:zeta_raw) // chain from previous challenge (zeta's raw hash)
     // gamma_kzg bound to "u" challenge by fold_proof

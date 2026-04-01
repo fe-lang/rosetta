@@ -40,6 +40,13 @@ impl Transcript {
         Transcript { ptr: std::evm::alloc(4096), len: 0 }
     }
 
+    /// Reset the transcript, reusing the same memory buffer.
+    /// Use this instead of Transcript::new() when the previous
+    /// transcript is no longer needed.
+    pub fn reset(self) -> Transcript {
+        Transcript { ptr: self.ptr, len: 0 }
+    }
+
     pub fn write<T: Writable>(self, val: T) -> Transcript uses (evm: mut Evm) {
         val.write_to(ptr: self.ptr + self.len)
         Transcript { ptr: self.ptr, len: self.len + val.byte_size() }
