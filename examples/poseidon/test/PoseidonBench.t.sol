@@ -32,13 +32,13 @@ contract PoseidonBenchTest {
         cmd[3] = "sonatina";
         cmd[4] = "-O";
         cmd[5] = optLevel == 0 ? "0" : optLevel == 1 ? "1" : "2";
-        cmd[6] = "../..";
+        cmd[6] = "fe";
         vm.ffi(cmd);
 
         string[] memory readCmd = new string[](3);
         readCmd[0] = "bash";
         readCmd[1] = "-c";
-        readCmd[2] = "printf '0x'; tr -d '\\n' < ../../out/PoseidonBench.bin";
+        readCmd[2] = "printf '0x'; tr -d '\\n' < fe/out/PoseidonBench.bin";
         bytes memory feInitcode = vm.ffi(readCmd);
         address _fe;
         assembly { _fe := create(0, add(feInitcode, 0x20), mload(feInitcode)) }

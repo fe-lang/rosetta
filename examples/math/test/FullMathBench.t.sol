@@ -53,7 +53,7 @@ contract FullMathBenchTest {
         cmd[3] = "sonatina";
         cmd[4] = "-O";
         cmd[5] = optLevel == 0 ? "0" : optLevel == 1 ? "1" : "2";
-        cmd[6] = "../..";  // workspace root
+        cmd[6] = "fe"; // local math ingot
         vm.ffi(cmd);
 
         // Deploy Fe contract from compiled bytecode
@@ -61,7 +61,7 @@ contract FullMathBenchTest {
         string[] memory readCmd = new string[](3);
         readCmd[0] = "bash";
         readCmd[1] = "-c";
-        readCmd[2] = "printf '0x'; tr -d '\\n' < ../../out/FullMathBench.bin";
+        readCmd[2] = "printf '0x'; tr -d '\\n' < fe/out/FullMathBench.bin";
         bytes memory feInitcode = vm.ffi(readCmd);
         address feAddr;
         assembly {
