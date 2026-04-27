@@ -5,6 +5,7 @@ interface Vm {
     function ffi(string[] calldata) external returns (bytes memory);
     function pauseGasMetering() external;
     function resumeGasMetering() external;
+    function envOr(string calldata name, string calldata defaultValue) external returns (string memory);
     function envOr(string calldata name, uint256 defaultValue) external returns (uint256);
 }
 
@@ -25,7 +26,7 @@ contract PoseidonBenchTest {
         // Deploy Fe Poseidon
         uint256 optLevel = vm.envOr("FE_SONA_OPT_LEVEL", uint256(0));
         string[] memory cmd = new string[](7);
-        cmd[0] = "fe";
+        cmd[0] = vm.envOr("FE_BIN", "fe");
         cmd[1] = "build";
         cmd[2] = "--backend";
         cmd[3] = "sonatina";

@@ -24,8 +24,11 @@ Shared libraries in `shared/`:
 ## Running
 
 ```bash
+# Optional: point Foundry FFI tests at a specific Fe binary
+export FE_BIN="$HOME/code/fe/quagmir/target/release/fe"
+
 # Build all Fe contracts
-fe build .
+"${FE_BIN:-fe}" build .
 
 # Run Foundry equivalence + gas tests
 cd examples/erc20      && forge test -vv

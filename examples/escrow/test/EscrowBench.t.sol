@@ -5,6 +5,7 @@ import "../sol/Escrow.sol";
 
 interface Vm {
     function ffi(string[] calldata) external returns (bytes memory);
+    function envOr(string calldata name, string calldata defaultValue) external returns (string memory);
     function prank(address) external;
     function deal(address, uint256) external;
     function pauseGasMetering() external;
@@ -41,7 +42,7 @@ contract EscrowBenchTest {
 
         // --- Build Fe contracts ---
         string[] memory buildCmd = new string[](5);
-        buildCmd[0] = "fe";
+        buildCmd[0] = vm.envOr("FE_BIN", "fe");
         buildCmd[1] = "build";
         buildCmd[2] = "--backend";
         buildCmd[3] = "sonatina";

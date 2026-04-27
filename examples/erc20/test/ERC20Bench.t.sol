@@ -5,6 +5,7 @@ import "../sol/ERC20.sol";
 
 interface Vm {
     function ffi(string[] calldata) external returns (bytes memory);
+    function envOr(string calldata name, string calldata defaultValue) external returns (string memory);
     function prank(address) external;
 }
 
@@ -26,7 +27,7 @@ contract ERC20BenchTest {
 
         // Deploy Fe ERC20
         string[] memory cmd = new string[](5);
-        cmd[0] = "fe";
+        cmd[0] = vm.envOr("FE_BIN", "fe");
         cmd[1] = "build";
         cmd[2] = "--backend";
         cmd[3] = "sonatina";
