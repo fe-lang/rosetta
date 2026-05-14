@@ -28,7 +28,7 @@ const fn full_round(s0: Fp, s1: Fp, s2: Fp, rc: usize, mat: [[u256; 3]; 3]) -> (
 }
 
 /// Poseidon hash of two field elements.
-pub const fn hash(_ a: u256, _ b: u256) -> u256 {
+pub const fn hash(a: u256, b: u256) -> u256 {
     let mut s0 = Fp::new(val: 0) + Fp::new(val: C[0])
     let mut s1 = Fp::new(val: a) + Fp::new(val: C[1])
     let mut s2 = Fp::new(val: b) + Fp::new(val: C[2])
@@ -80,6 +80,6 @@ pub const fn hash(_ a: u256, _ b: u256) -> u256 {
 }
 
 // Known-answer vectors from circomlibjs buildPoseidon(), verified at compile time.
-static_assert(hash(0, 0) == 0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864)
-static_assert(hash(1, 2) == 0x115cc0f5e7d690413df64c6b9662e9cf2a3617f2743245519e19607a4417189a)
-static_assert(hash(42, 17) == 0x18ddf7be412cfc792364a46eba440316dbb2427346063b747899e6ee0c3aa214)
+static_assert(hash(a: 0, b: 0) == 0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864)
+static_assert(hash(a: 1, b: 2) == 0x115cc0f5e7d690413df64c6b9662e9cf2a3617f2743245519e19607a4417189a)
+static_assert(hash(a: 42, b: 17) == 0x18ddf7be412cfc792364a46eba440316dbb2427346063b747899e6ee0c3aa214)
