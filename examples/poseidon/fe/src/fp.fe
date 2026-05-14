@@ -1,7 +1,6 @@
 use std::evm::crypto::{addmod, mulmod}
 use core::ops::{Add, Mul}
-
-const P: u256 = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
+use super::constants::PRIME
 
 pub struct Fp {
     pub val: u256,
@@ -11,13 +10,13 @@ impl Copy for Fp {}
 
 impl Add for Fp {
     const fn add(own self, _ rhs: own Fp) -> Fp {
-        Fp { val: addmod(self.val, rhs.val, P) }
+        Fp { val: addmod(self.val, rhs.val, PRIME) }
     }
 }
 
 impl Mul for Fp {
     const fn mul(own self, _ rhs: own Fp) -> Fp {
-        Fp { val: mulmod(self.val, rhs.val, P) }
+        Fp { val: mulmod(self.val, rhs.val, PRIME) }
     }
 }
 

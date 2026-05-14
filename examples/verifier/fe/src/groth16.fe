@@ -1,4 +1,5 @@
 use ec::bn254::{G1Point, G2Point, negate, pairing_4}
+use super::field::F_Q
 use std::evm::Evm
 
 /// Groth16 proof verification on BN254.
@@ -12,9 +13,6 @@ use std::evm::Evm
 /// VerifyingKey struct. The same code works for any circuit — swap the
 /// key, not the verifier. EC operations use the bn254 module.
 
-/// BN254 scalar field order.
-const SCALAR_FIELD: u256 = 21888242871839275222246405745257275088548364400416034343698204186575808495617
-
 /// A validated scalar field element. Guaranteed < SCALAR_FIELD on construction.
 pub struct ScalarInput {
     pub val: u256,
@@ -22,7 +20,7 @@ pub struct ScalarInput {
 
 impl ScalarInput {
     pub fn new(val: u256) -> ScalarInput {
-        assert(val < SCALAR_FIELD)
+        assert(val < F_Q)
         ScalarInput { val }
     }
 }
