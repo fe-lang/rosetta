@@ -12,15 +12,15 @@ pub const F_Q: u256 = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593
 /// that the compiler monomorphizes into the same addmod/mulmod opcodes,
 /// but you can't accidentally cross them.
 
-pub fn add<const MODULUS: u256>(_ a: u256, _ b: u256) -> u256 {
+pub const fn add<const MODULUS: u256>(_ a: u256, _ b: u256) -> u256 {
     addmod(a, b, MODULUS)
 }
 
-pub fn mul<const MODULUS: u256>(_ a: u256, _ b: u256) -> u256 {
+pub const fn mul<const MODULUS: u256>(_ a: u256, _ b: u256) -> u256 {
     mulmod(a, b, MODULUS)
 }
 
-pub fn sub<const MODULUS: u256>(_ a: u256, _ b: u256) -> u256 {
+pub const fn sub<const MODULUS: u256>(_ a: u256, _ b: u256) -> u256 {
     addmod(a, MODULUS - b, MODULUS)
 }
 
@@ -37,6 +37,6 @@ pub fn inv<const MODULUS: u256>(_ a: u256) -> u256 {
 }
 
 /// Negate: -a mod MODULUS
-pub fn neg<const MODULUS: u256>(_ a: u256) -> u256 {
+pub const fn neg<const MODULUS: u256>(_ a: u256) -> u256 {
     if a == 0 { 0 } else { MODULUS - a }
 }
