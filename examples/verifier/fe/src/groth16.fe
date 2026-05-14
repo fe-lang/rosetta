@@ -20,7 +20,7 @@ pub struct ScalarInput {
 
 impl ScalarInput {
     pub fn new(val: u256) -> ScalarInput {
-        assert(val < F_Q)
+        assert_msg(val < F_Q, "input exceeds scalar field")
         ScalarInput { val }
     }
 }

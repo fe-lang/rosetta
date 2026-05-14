@@ -32,7 +32,7 @@ pub contract TokenContract uses (ctx: Ctx) {
 
     recv TokenMsg {
         Mint { to, amount } uses (mut store, ctx) {
-            assert(ctx.caller() == store.owner)
+            assert_msg(ctx.caller() == store.owner, "only owner can mint")
             store.total_supply += amount
             store.balances.set(key: to, value: store.balances.get(key: to) + amount)
         }
@@ -110,7 +110,7 @@ pub contract GovContract uses (ctx: Ctx, call: mut Call) {
 
     recv GovMsg {
         Propose { description } -> u256 uses (mut store, ctx, mut call) {
-            assert(token_balance(store.token, ctx.caller()) > 0)
+            assert_msg(token_balance(store.token, ctx.caller()) > 0, "proposer has no tokens")
 
             let id = store.proposal_count
             store.proposal_count = id + 1
@@ -125,15 +125,15 @@ pub contract GovContract uses (ctx: Ctx, call: mut Call) {
             let caller = ctx.caller()
             let block = ctx.block_number()
 
-            assert(block >= store.vote_starts.get(key: proposal_id))
-            assert(block <= store.vote_ends.get(key: proposal_id))
-            assert(!store.has_voted.get(key: (proposal_id, caller)))
+            assert_msg(block >= store.vote_starts.get(key: proposal_id), "voting not started")
+            assert_msg(block <= store.vote_ends.get(key: proposal_id), "voting ended")
+            assert_msg(!store.has_voted.get(key: (proposal_id, caller)), "already voted")
 
             store.has_voted.set(key: (proposal_id, caller), value: true)
 
             let weight = token_balance(store.token, caller)
                        + store.delegated_weight.get(key: caller)
-            assert(weight > 0)
+            assert_msg(weight > 0, "no voting power")
 
             if support {
                 let v = store.yes_votes.get(key: proposal_id)
@@ -163,12 +163,12 @@ pub contract GovContract uses (ctx: Ctx, call: mut Call) {
         }
 
         Execute { proposal_id } -> bool uses (mut store, ctx) {
-            assert(ctx.block_number() > store.vote_ends.get(key: proposal_id))
-            assert(!store.executed.get(key: proposal_id))
+            assert_msg(ctx.block_number() > store.vote_ends.get(key: proposal_id), "voting not ended")
+            assert_msg(!store.executed.get(key: proposal_id), "already executed")
 
             let yes = store.yes_votes.get(key: proposal_id)
             let no = store.no_votes.get(key: proposal_id)
-            assert(yes + no >= store.quorum)
+            assert_msg(yes + no >= store.quorum, "quorum not reached")
 
             store.executed.set(key: proposal_id, value: true)
             yes > no

@@ -52,14 +52,14 @@ pub contract Escrow uses (ctx: Ctx) {
     recv EscrowMsg {
         #[payable]
         Deposit uses (mut store, ctx) {
-            assert(is_empty(s: store.state))
+            assert_msg(is_empty(s: store.state), "escrow already funded")
             store.balance = ctx.value()
             store.state = State::Funded
         }
 
         Release -> u256 uses (mut store, ctx) {
-            assert(ctx.caller() == store.arbiter)
-            assert(is_funded(s: store.state))
+            assert_msg(ctx.caller() == store.arbiter, "only arbiter can release")
+            assert_msg(is_funded(s: store.state), "escrow not funded")
             store.state = State::Released
             let amount = store.balance
             store.balance = 0
