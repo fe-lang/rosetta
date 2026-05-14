@@ -4,8 +4,6 @@
 /// TokenContract owns the token state. GovContract stores governance
 /// state and reads token balances via typed cross-contract calls.
 
-use std::abi::sol
-
 // ---- Token ----
 
 msg TokenMsg {

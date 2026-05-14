@@ -4,8 +4,6 @@
 /// The Arbiter contract's capabilities are bounded at the type level —
 /// it can only make calls (uses Call), not access storage or emit events.
 
-use std::abi::sol
-
 msg EscrowMsg {
     #[selector = sol("deposit()")]
     Deposit,

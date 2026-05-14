@@ -1,4 +1,3 @@
-use std::abi::sol
 use std::evm::Evm
 use super::merkle_proof
 

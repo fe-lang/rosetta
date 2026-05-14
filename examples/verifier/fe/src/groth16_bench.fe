@@ -1,4 +1,3 @@
-use std::abi::sol
 use std::evm::Evm
 use ec::bn254::{G1Point, G2Point}
 use super::groth16::{VerifyingKey, Proof, ScalarInput, verify}

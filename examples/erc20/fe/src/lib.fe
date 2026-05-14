@@ -3,8 +3,6 @@
 /// One file, no inheritance, exhaustive msg dispatch. Effects declare
 /// exactly what each handler can access.
 
-use std::abi::sol
-
 msg Erc20 {
     #[selector = sol("totalSupply()")]
     TotalSupply -> u256,

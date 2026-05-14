@@ -1,4 +1,3 @@
-use std::abi::sol
 use std::evm::{Evm, RawOps}
 use ec::bn254::{G1Point, G2Point}
 use super::plonk::{PlonkVK, PlonkProof, verify, debug_challenges}

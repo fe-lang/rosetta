@@ -3,8 +3,6 @@
 /// Typed reserves prevent accidentally passing reserve_a where reserve_b
 /// is expected. Effects declare exactly what each handler can access.
 
-use std::abi::sol
-
 msg AmmMsg {
     #[selector = sol("addLiquidity(uint256,uint256)")]
     AddLiquidity { amount_a: u256, amount_b: u256 },
