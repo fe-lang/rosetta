@@ -1,8 +1,3 @@
-/// BN254 scalar field element with operator overloading.
-///
-/// STATUS: crashes sonatina at scale (sonatina#227). Using raw u256 + addmod/mulmod
-/// as workaround in lib.fe until fixed.
-
 use std::evm::crypto::{addmod, mulmod}
 use core::ops::{Add, Mul}
 
@@ -15,23 +10,23 @@ pub struct Fp {
 impl Copy for Fp {}
 
 impl Add for Fp {
-    fn add(own self, _ rhs: own Fp) -> Fp {
+    const fn add(own self, _ rhs: own Fp) -> Fp {
         Fp { val: addmod(self.val, rhs.val, P) }
     }
 }
 
 impl Mul for Fp {
-    fn mul(own self, _ rhs: own Fp) -> Fp {
+    const fn mul(own self, _ rhs: own Fp) -> Fp {
         Fp { val: mulmod(self.val, rhs.val, P) }
     }
 }
 
 impl Fp {
-    pub fn new(val: u256) -> Fp { Fp { val } }
+    pub const fn new(val: u256) -> Fp { Fp { val } }
 
-    pub fn zero() -> Fp { Fp { val: 0 } }
+    pub const fn zero() -> Fp { Fp { val: 0 } }
 
-    pub fn pow5(self) -> Fp {
+    pub const fn pow5(self) -> Fp {
         let x2: Fp = self * self
         let x4: Fp = x2 * x2
         x4 * self
