@@ -91,7 +91,7 @@ struct GovStore {
 }
 
 /// Read a token balance via typed cross-contract call.
-fn token_balance(_ token: Address, _ account: Address) -> u256
+fn token_balance(token: Address, account: Address) -> u256
     uses (call: mut Call)
 {
     call.static(addr: token, gas: 100000, message: TokenMsg::BalanceOf { account })
@@ -110,7 +110,7 @@ pub contract GovContract uses (ctx: Ctx, call: mut Call) {
 
     recv GovMsg {
         Propose { description } -> u256 uses (mut store, ctx, mut call) {
-            assert_msg(token_balance(store.token, ctx.caller()) > 0, "proposer has no tokens")
+            assert_msg(token_balance(token: store.token, account: ctx.caller()) > 0, "proposer has no tokens")
 
             let id = store.proposal_count
             store.proposal_count = id + 1
@@ -131,7 +131,7 @@ pub contract GovContract uses (ctx: Ctx, call: mut Call) {
 
             store.has_voted.set(key: (proposal_id, caller), value: true)
 
-            let weight = token_balance(store.token, caller)
+            let weight = token_balance(token: store.token, account: caller)
                        + store.delegated_weight.get(key: caller)
             assert_msg(weight > 0, "no voting power")
 
@@ -146,7 +146,7 @@ pub contract GovContract uses (ctx: Ctx, call: mut Call) {
 
         Delegate { to } uses (mut store, ctx, mut call) {
             let caller = ctx.caller()
-            let weight = token_balance(store.token, caller)
+            let weight = token_balance(token: store.token, account: caller)
 
             let old_delegate = store.delegates.get(key: caller)
             if old_delegate.inner != 0 {
@@ -190,7 +190,7 @@ pub contract GovContract uses (ctx: Ctx, call: mut Call) {
         }
 
         VotingPower { account } -> u256 uses (store, mut call) {
-            token_balance(store.token, account)
+            token_balance(token: store.token, account)
                 + store.delegated_weight.get(key: account)
         }
     }
