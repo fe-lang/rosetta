@@ -27,7 +27,7 @@ struct LiquidityAdded {
 #[event]
 struct Swap {
     #[indexed]
-    direction: u256, // 0 = A->B, 1 = B->A
+    direction: u8,
     amount_in: u256,
     amount_out: u256,
 }
