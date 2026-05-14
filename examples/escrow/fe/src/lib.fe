@@ -19,7 +19,7 @@ pub enum State {
     Released,
 }
 
-fn state_disc(s: State) -> u256 {
+const fn state_disc(s: State) -> u256 {
     match s {
         State::Empty => 0,
         State::Funded => 1,
@@ -27,8 +27,8 @@ fn state_disc(s: State) -> u256 {
     }
 }
 
-fn is_empty(s: State) -> bool { state_disc(s) == 0 }
-fn is_funded(s: State) -> bool { state_disc(s) == 1 }
+const fn is_empty(s: State) -> bool { state_disc(s) == 0 }
+const fn is_funded(s: State) -> bool { state_disc(s) == 1 }
 
 struct EscrowStore {
     depositor: Address,

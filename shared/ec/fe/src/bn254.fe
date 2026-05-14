@@ -42,7 +42,7 @@ pub struct G2Point {
 impl Copy for G2Point {}
 
 /// The generator of G1.
-pub fn p1() -> G1Point {
+pub const fn p1() -> G1Point {
     G1Point { x: 1, y: 2 }
 }
 

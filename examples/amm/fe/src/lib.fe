@@ -38,7 +38,7 @@ struct AmmStore {
 }
 
 /// Constant-product swap: dy = reserve_out * dx / (reserve_in + dx)
-fn swap_amount(reserve_in: u256, reserve_out: u256, amount_in: u256) -> u256 {
+const fn swap_amount(reserve_in: u256, reserve_out: u256, amount_in: u256) -> u256 {
     if amount_in == 0 || reserve_in == 0 || reserve_out == 0 {
         0
     } else {

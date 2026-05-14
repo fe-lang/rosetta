@@ -19,42 +19,41 @@ pub struct FixedPoint<const SCALE: u256> {
 impl<const S: u256> Copy for FixedPoint<S> {}
 
 impl<const S: u256> Add for FixedPoint<S> {
-    fn add(own self, _ rhs: own FixedPoint<S>) -> FixedPoint<S> {
+    const fn add(own self, _ rhs: own FixedPoint<S>) -> FixedPoint<S> {
         FixedPoint<S> { raw: self.raw + rhs.raw }
     }
 }
 
 impl<const S: u256> Sub for FixedPoint<S> {
-    fn sub(own self, _ rhs: own FixedPoint<S>) -> FixedPoint<S> {
+    const fn sub(own self, _ rhs: own FixedPoint<S>) -> FixedPoint<S> {
         FixedPoint<S> { raw: self.raw - rhs.raw }
     }
 }
 
 impl<const S: u256> FixedPoint<S> {
-    /// Wrap a raw u256 that is already scaled.
-    pub fn from_raw(raw: u256) -> FixedPoint<S> {
+    pub const fn from_raw(raw: u256) -> FixedPoint<S> {
         FixedPoint<S> { raw }
     }
 
-    pub fn one() -> FixedPoint<S> { FixedPoint<S> { raw: S } }
+    pub const fn one() -> FixedPoint<S> { FixedPoint<S> { raw: S } }
 
-    pub fn from_int(n: u256) -> FixedPoint<S> {
+    pub const fn from_int(n: u256) -> FixedPoint<S> {
         FixedPoint<S> { raw: n * S }
     }
 
-    pub fn mul_down(self, rhs: FixedPoint<S>) -> FixedPoint<S> {
+    pub const fn mul_down(self, rhs: FixedPoint<S>) -> FixedPoint<S> {
         FixedPoint<S> { raw: self.raw * rhs.raw / S }
     }
 
-    pub fn mul_up(self, rhs: FixedPoint<S>) -> FixedPoint<S> {
+    pub const fn mul_up(self, rhs: FixedPoint<S>) -> FixedPoint<S> {
         FixedPoint<S> { raw: (self.raw * rhs.raw + S - 1) / S }
     }
 
-    pub fn div_down(self, rhs: FixedPoint<S>) -> FixedPoint<S> {
+    pub const fn div_down(self, rhs: FixedPoint<S>) -> FixedPoint<S> {
         FixedPoint<S> { raw: self.raw * S / rhs.raw }
     }
 
-    pub fn div_up(self, rhs: FixedPoint<S>) -> FixedPoint<S> {
+    pub const fn div_up(self, rhs: FixedPoint<S>) -> FixedPoint<S> {
         FixedPoint<S> { raw: (self.raw * S + rhs.raw - 1) / rhs.raw }
     }
 }
