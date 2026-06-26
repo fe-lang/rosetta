@@ -13,7 +13,6 @@ use std::evm::crypto::{mulmod, addmod}
 use std::evm::{Evm, RawOps}
 
 /// BN254 scalar field — for all polynomial evaluations and challenges.
-
 /// Halo2/KZG verification key.
 ///
 /// In Solidity: 24 hardcoded hex constants inlined at the top of a 2036-line
@@ -24,10 +23,8 @@ pub struct Halo2VK {
     /// Fixed commitments from the circuit (preprocessed polynomials).
     /// The number of these varies by circuit, but the verifier logic is the same.
     pub fixed_comms: [G1Point; 1],
-
     /// Permutation commitments.
     pub permutation_comms: [G1Point; 4],
-
     /// The constant term embedded in the transcript initialization.
     pub transcript_init: u256,
 }
@@ -42,31 +39,22 @@ pub struct Halo2VK {
 pub struct Halo2Proof {
     /// Evaluations of instance (public input) polynomials at challenge point.
     pub instance_evals: [u256; 1],
-
     /// Advice column commitments (prover's witness).
     pub advice_comms: [G1Point; 5],
-
     /// Evaluations of advice polynomials at challenge point.
     pub advice_evals: [u256; 14],
-
     /// Evaluations of fixed polynomials at challenge point.
     pub fixed_evals: [u256; 2],
-
     /// Permutation product commitments.
     pub permutation_z_comms: [G1Point; 4],
-
     /// Evaluations of permutation polynomials.
     pub permutation_evals: [u256; 12],
-
     /// Vanishing argument commitment.
     pub vanishing_random_comm: G1Point,
-
     /// Quotient polynomial commitments.
     pub h_comms: [G1Point; 4],
-
     /// Random evaluation.
     pub random_eval: u256,
-
     /// KZG opening proofs.
     pub w_x: G1Point,
     pub w_g: G1Point,
@@ -80,9 +68,11 @@ pub struct Halo2Proof {
 ///   ...
 ///
 /// In Fe: a loop.
-pub fn read_field_elements_from_calldata(offset: u256, count: usize) -> [u256; 32] uses (evm: mut Evm) {
+pub fn read_field_elements_from_calldata(offset: u256, count: usize) -> [u256; 32]
+uses (evm: mut Evm)
+{
     let mut elems: [u256; 32] = [0; 32]
-    for i in 0..count {
+    for i in 0 .. count {
         let raw = evm.calldataload(offset + (i as u256) * 32)
         elems[i] = raw % F_Q
     }
@@ -120,21 +110,21 @@ pub fn validate_ec_point(p: G1Point) -> bool {
 ///   ...
 ///
 /// In Fe: append to transcript, squeeze.
-pub fn derive_challenges(
-    vk: Halo2VK, proof: Halo2Proof,
-) -> (u256, u256, u256, u256, u256) uses (evm: mut Evm) {
+pub fn derive_challenges(vk: Halo2VK, proof: Halo2Proof) -> (u256, u256, u256, u256, u256)
+uses (evm: mut Evm)
+{
     let mut t = Transcript::new()
 
     // Initialize with VK constant
     t = t.write_u256(val: vk.transcript_init)
 
     // Append instance evaluations
-    for i in 0..1 {
+    for i in 0 .. 1 {
         t = t.write_u256(val: proof.instance_evals[i])
     }
 
     // Append advice commitments
-    for i in 0..5 {
+    for i in 0 .. 5 {
         t = t.write_g1(p: proof.advice_comms[i])
     }
 
@@ -150,13 +140,13 @@ pub fn derive_challenges(
     let (gamma, _, mut t) = t.squeeze()
 
     // Append permutation commitments for alpha
-    for i in 0..4 {
+    for i in 0 .. 4 {
         t = t.write_g1(p: proof.permutation_z_comms[i])
     }
     let (alpha, _, mut t) = t.squeeze()
 
     // Append quotient commitments for x (evaluation point)
-    for i in 0..4 {
+    for i in 0 .. 4 {
         t = t.write_g1(p: proof.h_comms[i])
     }
     let (x, _, _) = t.squeeze()
@@ -172,10 +162,7 @@ pub fn derive_challenges(
 ///   success := and(eq(staticcall(gas(), 0x6, ...), 1), success) // ecAdd
 ///
 /// In Fe: msm::msm<N>() — one function call.
-pub fn kzg_accumulate(
-    commitments: [G1Point; 21],
-    scalars: [u256; 21],
-) -> G1Point {
+pub fn kzg_accumulate(commitments: [G1Point; 21], scalars: [u256; 21]) -> G1Point {
     msm::msm<21>(commitments, scalars)
 }
 
@@ -185,10 +172,9 @@ pub fn kzg_accumulate(
 /// hand-laid-out memory.
 ///
 /// In Fe: use our bn254 pairing primitive.
-pub fn kzg_pairing_check(
-    p: G1Point, q: G1Point,
-    g2_srs: G2Point,
-) -> bool uses (evm: mut Evm) {
+pub fn kzg_pairing_check(p: G1Point, q: G1Point, g2_srs: G2Point) -> bool
+uses (evm: mut Evm)
+{
     // e(-P, [x]_2) * e(Q, G2_generator) == 1
     let neg_p = negate(p: p)
 

@@ -1,0 +1,11 @@
+[profile.default]
+test = "test"
+ffi = true
+auto_detect_solc = true
+optimizer = true
+optimizer_runs = 200
+no_match_test = "test_display_"
+
+fs_permissions = [
+  { access = "read", path = "/" },
+]

@@ -41,12 +41,10 @@ contract EscrowBenchTest {
         vm.pauseGasMetering();
 
         // --- Build Fe contracts ---
-        string[] memory buildCmd = new string[](5);
+        string[] memory buildCmd = new string[](3);
         buildCmd[0] = vm.envOr("FE_BIN", "fe");
         buildCmd[1] = "build";
-        buildCmd[2] = "--backend";
-        buildCmd[3] = "sonatina";
-        buildCmd[4] = "fe";
+        buildCmd[2] = "fe";
         vm.ffi(buildCmd);
 
         // --- Read Fe bytecode (cached for reuse in fuzz tests) ---

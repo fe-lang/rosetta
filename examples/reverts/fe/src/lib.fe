@@ -1,0 +1,29 @@
+use std::abi::sol
+
+msg RevertOutputMsg {
+    #[selector = sol("checkedOverflow()")]
+    CheckedOverflow,
+    #[selector = sol("failedAssert()")]
+    FailedAssert,
+    #[selector = sol("failedAssertMsg()")]
+    FailedAssertMsg,
+}
+
+pub contract RevertOutput {
+    init() {}
+
+    recv RevertOutputMsg {
+        CheckedOverflow {} {
+            let x: u8 = 255
+            let y: u8 = x + 1
+        }
+
+        FailedAssert {} {
+            assert!(false)
+        }
+
+        FailedAssertMsg {} {
+            assert!(false, "boom")
+        }
+    }
+}

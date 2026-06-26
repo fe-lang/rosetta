@@ -3,7 +3,6 @@
 /// Two contracts sharing a msg type: Escrow holds funds, Arbiter releases them.
 /// The Arbiter contract's capabilities are bounded at the type level —
 /// it can only make calls (uses Call), not access storage or emit events.
-
 msg EscrowMsg {
     #[selector = sol("deposit()")]
     Deposit,
@@ -27,8 +26,12 @@ const fn state_disc(s: State) -> u256 {
     }
 }
 
-const fn is_empty(s: State) -> bool { state_disc(s) == 0 }
-const fn is_funded(s: State) -> bool { state_disc(s) == 1 }
+const fn is_empty(s: State) -> bool {
+    state_disc(s) == 0
+}
+const fn is_funded(s: State) -> bool {
+    state_disc(s) == 1
+}
 
 struct EscrowStore {
     depositor: Address,
@@ -39,9 +42,11 @@ struct EscrowStore {
 }
 
 pub contract Escrow uses (ctx: Ctx) {
-    mut store: EscrowStore
+    mut store: EscrowStore,
 
-    init(beneficiary: Address, arbiter: Address) uses (mut store, ctx) {
+    init(beneficiary: Address, arbiter: Address)
+    uses (mut store, ctx)
+    {
         store.depositor = ctx.caller()
         store.beneficiary = beneficiary
         store.arbiter = arbiter
@@ -52,14 +57,14 @@ pub contract Escrow uses (ctx: Ctx) {
     recv EscrowMsg {
         #[payable]
         Deposit uses (mut store, ctx) {
-            assert_msg(is_empty(s: store.state), "escrow already funded")
+            assert!(is_empty(s: store.state), "escrow already funded")
             store.balance = ctx.value()
             store.state = State::Funded
         }
 
         Release -> u256 uses (mut store, ctx) {
-            assert_msg(ctx.caller() == store.arbiter, "only arbiter can release")
-            assert_msg(is_funded(s: store.state), "escrow not funded")
+            assert!(ctx.caller() == store.arbiter, "only arbiter can release")
+            assert!(is_funded(s: store.state), "escrow not funded")
             store.state = State::Released
             let amount = store.balance
             store.balance = 0
@@ -67,7 +72,9 @@ pub contract Escrow uses (ctx: Ctx) {
         }
 
         // Read-only: no mut, no ctx.
-        GetBalance -> u256 uses (store) { store.balance }
+        GetBalance -> u256 uses (store) {
+            store.balance
+        }
     }
 }
 
@@ -84,7 +91,12 @@ pub contract Arbiter uses (call: mut Call) {
 
     recv ArbiterMsg {
         DoRelease { escrow_addr } -> u256 uses (mut call) {
-            call.call(addr: escrow_addr, gas: 100000, value: 0, message: EscrowMsg::Release {})
+            call.call(
+                addr: escrow_addr,
+                gas: 100000,
+                value: 0,
+                message: EscrowMsg::Release {},
+            )
         }
     }
 }
@@ -95,8 +107,13 @@ fn test_escrow_lifecycle() uses (evm: mut Evm) {
     let arbiter_addr = Address { inner: 0xA1B1 }
 
     let escrow = evm.create2<Escrow>(value: 0, args: (beneficiary, arbiter_addr), salt: 0)
-    assert(escrow.inner != 0)
+    assert!(escrow.inner != 0)
 
-    let bal: u256 = evm.call(addr: escrow, gas: 100000, value: 0, message: EscrowMsg::GetBalance {})
-    assert(bal == 0)
+    let bal: u256 = evm.call(
+            addr: escrow,
+            gas: 100000,
+            value: 0,
+            message: EscrowMsg::GetBalance {},
+        )
+    assert!(bal == 0)
 }

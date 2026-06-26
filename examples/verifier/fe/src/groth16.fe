@@ -12,15 +12,12 @@ use std::evm::Evm
 /// Fe version: the verifier is a reusable function parameterized by a
 /// VerifyingKey struct. The same code works for any circuit — swap the
 /// key, not the verifier. EC operations use the bn254 module.
-
 /// A validated scalar field element. Guaranteed < SCALAR_FIELD on construction.
-pub struct ScalarInput {
-    pub val: u256,
-}
+pub struct ScalarInput { pub val: u256 }
 
 impl ScalarInput {
     pub fn new(val: u256) -> ScalarInput {
-        assert_msg(val < F_Q, "input exceeds scalar field")
+        assert!(val < F_Q, "input exceeds scalar field")
         ScalarInput { val }
     }
 }
@@ -35,18 +32,20 @@ pub struct VerifyingKey<const N: usize, const IC_LEN: usize> {
     pub ic: [G1Point; IC_LEN],
 }
 
-pub struct Proof {
-    pub a: G1Point,
-    pub b: G2Point,
-    pub c: G1Point,
-}
+pub struct Proof { pub a: G1Point, pub b: G2Point, pub c: G1Point }
 
 /// Verify a Groth16 proof with N public inputs.
 /// Inputs are validated on construction (ScalarInput::new asserts < SCALAR_FIELD).
-pub fn verify<const N: usize, const IC_LEN: usize>(vk: VerifyingKey<N, IC_LEN>, proof: Proof, inputs: [ScalarInput; N]) -> bool uses (evm: mut Evm) {
+pub fn verify<const N: usize, const IC_LEN: usize>(
+    vk: VerifyingKey<N, IC_LEN>,
+    proof: Proof,
+    inputs: [ScalarInput; N],
+) -> bool
+uses (evm: mut Evm)
+{
     // Compute vk_x = IC[0] + sum(inputs[i] * IC[i+1])
     let mut vk_x = vk.ic[0]
-    for i in 0..N {
+    for i in 0 .. N {
         vk_x = vk_x + vk.ic[i + 1].scale(s: inputs[i].val)
     }
 
@@ -55,9 +54,13 @@ pub fn verify<const N: usize, const IC_LEN: usize>(vk: VerifyingKey<N, IC_LEN>, 
 
     // Pairing check: e(-A, B) * e(alpha, beta) * e(vk_x, gamma) * e(C, delta) == 1
     pairing_4(
-        a1: neg_a,    b1: proof.b,
-        a2: vk.alpha1, b2: vk.beta2,
-        a3: vk_x,     b3: vk.gamma2,
-        a4: proof.c,   b4: vk.delta2,
+        a1: neg_a,
+        b1: proof.b,
+        a2: vk.alpha1,
+        b2: vk.beta2,
+        a3: vk_x,
+        b3: vk.gamma2,
+        a4: proof.c,
+        b4: vk.delta2,
     )
 }

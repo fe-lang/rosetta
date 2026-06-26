@@ -6,7 +6,6 @@
 ///
 /// A code generator targeting Fe would emit ONE of these — ~50 lines of
 /// const declarations — instead of a 2000-line assembly monolith.
-
 /// Describes a Halo2-style circuit's shape for verification.
 pub struct CircuitShape {
     /// Number of advice columns (prover witness).
@@ -41,10 +40,7 @@ const fn openvm_circuit() -> CircuitShape {
 /// Verification key as const data.
 /// In Solidity: 26 hex constants scattered across 2036 lines.
 /// In Fe: a struct literal.
-pub struct VKPoint {
-    pub x: u256,
-    pub y: u256,
-}
+pub struct VKPoint { pub x: u256, pub y: u256 }
 
 pub struct Halo2CircuitVK {
     /// Transcript initialization constant.
@@ -54,7 +50,8 @@ pub struct Halo2CircuitVK {
     /// Permutation commitments.
     pub permutation_comms: [VKPoint; 4],
     /// KZG SRS G2 point ([x]_2).
-    pub g2_x: [u256; 4],  // x_imag, x_real, y_imag, y_real
+    pub g2_x: [u256; 4],
+    // x_imag, x_real, y_imag, y_real
 }
 
 /// The OpenVM verification key — the 26 unique constants from Halo2Verifier.sol,
