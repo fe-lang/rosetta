@@ -78,15 +78,30 @@ if argv.length != 2
   exit 2
 end
 
-base_bin = File.expand_path(argv[0])
-candidate_bin = File.expand_path(argv[1])
+def executable_on_path?(command)
+  ENV.fetch("PATH", "").split(File::PATH_SEPARATOR).any? do |dir|
+    path = File.join(dir, command)
+    File.file?(path) && File.executable?(path)
+  end
+end
 
-[base_bin, candidate_bin].each do |path|
-  next if File.executable?(path)
+def normalize_fe_bin(value)
+  if value.include?(File::SEPARATOR)
+    path = File.expand_path(value)
+    return path if File.executable?(path)
 
-  warn "Fe binary is not executable: #{path}"
+    warn "Fe binary is not executable: #{path}"
+    exit 2
+  end
+
+  return value if executable_on_path?(value)
+
+  warn "Fe binary was not found on PATH: #{value}"
   exit 2
 end
+
+base_bin = normalize_fe_bin(argv[0])
+candidate_bin = normalize_fe_bin(argv[1])
 
 def strip_ansi(line)
   line.gsub(/\e\[[0-9;]*[A-Za-z]/, "")
