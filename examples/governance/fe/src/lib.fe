@@ -3,8 +3,7 @@
 /// Equivalent to the Solidity EIP-2535 Diamond version in sol/.
 /// TokenContract owns the token state. GovContract stores governance
 /// state and reads token balances via typed cross-contract calls.
-
-// ---- Token ----
+ // ---- Token ----
 
 msg TokenMsg {
     #[selector = sol("mint(address,uint256)")]
@@ -17,22 +16,16 @@ msg TokenMsg {
     TotalSupply -> u256,
 }
 
-struct TokenStore {
-    total_supply: u256,
-    balances: StorageMap<Address, u256>,
-    owner: Address,
-}
+struct TokenStore { total_supply: u256, balances: StorageMap<Address, u256>, owner: Address }
 
 pub contract TokenContract uses (ctx: Ctx) {
-    mut store: TokenStore
+    mut store: TokenStore,
 
-    init() uses (mut store, ctx) {
-        store.owner = ctx.caller()
-    }
+    init() uses (mut store, ctx) { store.owner = ctx.caller() }
 
     recv TokenMsg {
         Mint { to, amount } uses (mut store, ctx) {
-            assert_msg(ctx.caller() == store.owner, "only owner can mint")
+            assert!(ctx.caller() == store.owner, "only owner can mint")
             store.total_supply += amount
             store.balances.set(key: to, value: store.balances.get(key: to) + amount)
         }
@@ -40,7 +33,9 @@ pub contract TokenContract uses (ctx: Ctx) {
         Transfer { to, amount } -> bool uses (mut store, ctx) {
             let from = ctx.caller()
             let bal = store.balances.get(key: from)
-            if bal < amount { return false }
+            if bal < amount {
+                return false
+            }
             store.balances.set(key: from, value: bal - amount)
             store.balances.set(key: to, value: store.balances.get(key: to) + amount)
             true
@@ -50,7 +45,9 @@ pub contract TokenContract uses (ctx: Ctx) {
             store.balances.get(key: account)
         }
 
-        TotalSupply -> u256 uses (store) { store.total_supply }
+        TotalSupply -> u256 uses (store) {
+            store.total_supply
+        }
     }
 }
 
@@ -92,16 +89,20 @@ struct GovStore {
 
 /// Read a token balance via typed cross-contract call.
 fn token_balance(token: Address, account: Address) -> u256
-    uses (call: mut Call)
+uses (call: mut Call)
 {
-    call.static(addr: token, gas: 100000, message: TokenMsg::BalanceOf { account })
+    call.static(
+        addr: token,
+        gas: 100000,
+        message: TokenMsg::BalanceOf { account },
+    )
 }
 
 pub contract GovContract uses (ctx: Ctx, call: mut Call) {
-    mut store: GovStore
+    mut store: GovStore,
 
     init(token: Address, voting_period: u256, quorum: u256)
-        uses (mut store)
+    uses (mut store)
     {
         store.token = token
         store.voting_period = voting_period
@@ -110,7 +111,10 @@ pub contract GovContract uses (ctx: Ctx, call: mut Call) {
 
     recv GovMsg {
         Propose { description } -> u256 uses (mut store, ctx, mut call) {
-            assert_msg(token_balance(token: store.token, account: ctx.caller()) > 0, "proposer has no tokens")
+            assert!(
+                token_balance(token: store.token, account: ctx.caller()) > 0,
+                "proposer has no tokens",
+            )
 
             let id = store.proposal_count
             store.proposal_count = id + 1
@@ -125,15 +129,24 @@ pub contract GovContract uses (ctx: Ctx, call: mut Call) {
             let caller = ctx.caller()
             let block = ctx.block_number()
 
-            assert_msg(block >= store.vote_starts.get(key: proposal_id), "voting not started")
-            assert_msg(block <= store.vote_ends.get(key: proposal_id), "voting ended")
-            assert_msg(!store.has_voted.get(key: (proposal_id, caller)), "already voted")
+            assert!(
+                block >= store.vote_starts.get(key: proposal_id),
+                "voting not started",
+            )
+            assert!(
+                block <= store.vote_ends.get(key: proposal_id),
+                "voting ended",
+            )
+            assert!(
+                !store.has_voted.get(key: (proposal_id, caller)),
+                "already voted",
+            )
 
             store.has_voted.set(key: (proposal_id, caller), value: true)
 
             let weight = token_balance(token: store.token, account: caller)
-                       + store.delegated_weight.get(key: caller)
-            assert_msg(weight > 0, "no voting power")
+                + store.delegated_weight.get(key: caller)
+            assert!(weight > 0, "no voting power")
 
             if support {
                 let v = store.yes_votes.get(key: proposal_id)
@@ -163,18 +176,23 @@ pub contract GovContract uses (ctx: Ctx, call: mut Call) {
         }
 
         Execute { proposal_id } -> bool uses (mut store, ctx) {
-            assert_msg(ctx.block_number() > store.vote_ends.get(key: proposal_id), "voting not ended")
-            assert_msg(!store.executed.get(key: proposal_id), "already executed")
+            assert!(
+                ctx.block_number() > store.vote_ends.get(key: proposal_id),
+                "voting not ended",
+            )
+            assert!(!store.executed.get(key: proposal_id), "already executed")
 
             let yes = store.yes_votes.get(key: proposal_id)
             let no = store.no_votes.get(key: proposal_id)
-            assert_msg(yes + no >= store.quorum, "quorum not reached")
+            assert!(yes + no >= store.quorum, "quorum not reached")
 
             store.executed.set(key: proposal_id, value: true)
             yes > no
         }
 
-        GetProposal { proposal_id } -> (u256, u256, u256, bool) uses (store) {
+        GetProposal { proposal_id } -> (u256, u256, u256, bool)
+        uses (store)
+        {
             (
                 store.yes_votes.get(key: proposal_id),
                 store.no_votes.get(key: proposal_id),
@@ -183,15 +201,16 @@ pub contract GovContract uses (ctx: Ctx, call: mut Call) {
             )
         }
 
-        ProposalCount -> u256 uses (store) { store.proposal_count }
+        ProposalCount -> u256 uses (store) {
+            store.proposal_count
+        }
 
         GetDelegate { account } -> Address uses (store) {
             store.delegates.get(key: account)
         }
 
         VotingPower { account } -> u256 uses (store, mut call) {
-            token_balance(token: store.token, account)
-                + store.delegated_weight.get(key: account)
+            token_balance(token: store.token, account) + store.delegated_weight.get(key: account)
         }
     }
 }

@@ -14,6 +14,7 @@ Side-by-side Fe and Solidity implementations of Ethereum contract patterns. Each
 | [amm](examples/amm) | Constant-product AMM (swap, add liquidity) | yes |
 | [escrow](examples/escrow) | Escrow with typed state machine | yes |
 | [governance](examples/governance) | Token + governance (vs Solidity Diamond) | yes |
+| [reverts](examples/reverts) | Solidity-compatible Fe panic and revert-string payloads | n/a |
 | [verifier](examples/verifier) | Plonk and Halo2 proof verification | |
 | [poseidon](examples/poseidon) | Poseidon hash (T=3, BN254) | excluded ([sonatina#232](https://github.com/fe-lang/sonatina/issues/232)) |
 
@@ -25,7 +26,7 @@ Shared libraries in `shared/`:
 
 ```bash
 # Optional: point Foundry FFI tests at a specific Fe binary
-export FE_BIN="$HOME/code/fe/quagmir/target/release/fe"
+export FE_BIN="$HOME/code/fe/master/target/release/fe"
 
 # Build all Fe contracts
 "${FE_BIN:-fe}" build .
@@ -37,6 +38,7 @@ cd examples/merkle     && forge test -vv
 cd examples/amm        && forge test -vv
 cd examples/escrow     && forge test -vv
 cd examples/governance && forge test -vv
+cd examples/reverts    && forge test -vv
 ```
 
 Requires [Fe](https://github.com/ethereum/fe) and [Foundry](https://book.getfoundry.sh/).

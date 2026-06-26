@@ -26,12 +26,10 @@ contract ERC20BenchTest {
         sol = new ERC20(INITIAL, OWNER);
 
         // Deploy Fe ERC20
-        string[] memory cmd = new string[](5);
+        string[] memory cmd = new string[](3);
         cmd[0] = vm.envOr("FE_BIN", "fe");
         cmd[1] = "build";
-        cmd[2] = "--backend";
-        cmd[3] = "sonatina";
-        cmd[4] = "fe";
+        cmd[2] = "fe";
         vm.ffi(cmd);
 
         string[] memory readCmd = new string[](3);

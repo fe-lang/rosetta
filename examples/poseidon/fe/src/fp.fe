@@ -2,9 +2,7 @@ use std::evm::crypto::{addmod, mulmod}
 use core::ops::{Add, Mul}
 use super::constants::PRIME
 
-pub struct Fp {
-    pub val: u256,
-}
+pub struct Fp { pub val: u256 }
 
 impl Copy for Fp {}
 
@@ -21,10 +19,12 @@ impl Mul for Fp {
 }
 
 impl Fp {
-    pub const fn new(val: u256) -> Fp { Fp { val } }
-
-    pub const fn zero() -> Fp { Fp { val: 0 } }
-
+    pub const fn new(val: u256) -> Fp {
+        Fp { val }
+    }
+    pub const fn zero() -> Fp {
+        Fp { val: 0 }
+    }
     pub const fn pow5(self) -> Fp {
         let x2: Fp = self * self
         let x4: Fp = x2 * x2

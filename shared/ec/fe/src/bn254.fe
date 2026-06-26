@@ -3,15 +3,11 @@
 ///
 /// Uses typed wrappers from std::evm::crypto for all precompile calls.
 /// The 4-pair pairing uses effects to avoid exceeding the EVM stack depth.
-
 use core::ops::Add
 use std::evm::{Evm, RawMem}
 
 /// A G1 point (x, y) on the BN254 curve.
-pub struct G1Point {
-    pub x: u256,
-    pub y: u256,
-}
+pub struct G1Point { pub x: u256, pub y: u256 }
 
 impl Copy for G1Point {}
 
@@ -22,22 +18,22 @@ impl Add for G1Point {
 }
 
 impl G1Point {
-    pub fn origin() -> G1Point { G1Point { x: 0, y: 0 } }
-
-    pub fn is_origin(self) -> bool { self.x == 0 && self.y == 0 }
+    pub fn origin() -> G1Point {
+        G1Point { x: 0, y: 0 }
+    }
+    pub fn is_origin(self) -> bool {
+        self.x == 0 && self.y == 0
+    }
 
     /// Scalar multiply: self * s
-    pub fn scale(self, s: u256) -> G1Point { g1_mul(p: self, s) }
+    pub fn scale(self, s: u256) -> G1Point {
+        g1_mul(p: self, s)
+    }
 }
 
 /// A G2 point (x, y) where x and y are elements of F_p^2.
 /// Represented as (x_imag, x_real, y_imag, y_real).
-pub struct G2Point {
-    pub x_imag: u256,
-    pub x_real: u256,
-    pub y_imag: u256,
-    pub y_real: u256,
-}
+pub struct G2Point { pub x_imag: u256, pub x_real: u256, pub y_imag: u256, pub y_real: u256 }
 
 impl Copy for G2Point {}
 
@@ -59,26 +55,41 @@ pub fn negate(p: G1Point) -> G1Point {
 
 /// EC addition via precompile at address 0x06.
 pub fn g1_add(a: G1Point, b: G1Point) -> G1Point {
-    let (rx, ry) = std::evm::crypto::ec_add(a.x, a.y, b.x, b.y)
-    G1Point { x: rx, y: ry }
+    match std::evm::crypto::ec_add(ax: a.x, ay: a.y, bx: b.x, by: b.y) {
+        Result::Ok((rx, ry),) => G1Point { x: rx, y: ry },
+        Result::Err(_,) => {
+            assert!(false)
+            G1Point { x: 0, y: 0 }
+        },
+    }
 }
 
 /// EC scalar multiplication via precompile at address 0x07.
 pub fn g1_mul(p: G1Point, s: u256) -> G1Point {
-    let (rx, ry) = std::evm::crypto::ec_mul(p.x, p.y, s)
-    G1Point { x: rx, y: ry }
+    match std::evm::crypto::ec_mul(px: p.x, py: p.y, s) {
+        Result::Ok((rx, ry),) => G1Point { x: rx, y: ry },
+        Result::Err(_,) => {
+            assert!(false)
+            G1Point { x: 0, y: 0 }
+        },
+    }
 }
 
 /// EC pairing check via precompile at address 0x08.
 /// Checks: e(a1, b1) * e(a2, b2) == 1
-pub fn pairing_2(
-    a1: G1Point, b1: G2Point,
-    a2: G1Point, b2: G2Point,
-) -> bool uses (evm: mut Evm) {
+pub fn pairing_2(a1: G1Point, b1: G2Point, a2: G1Point, b2: G2Point) -> bool
+uses (evm: mut Evm)
+{
     let ptr = std::evm::alloc(384)
     write_pair(ptr, a: a1, b: b1)
     write_pair(ptr: ptr + 192, a: a2, b: b2)
-    std::evm::crypto::ec_pairing(ptr, 384)
+    match std::evm::crypto::ec_pairing(offset: ptr, len: 384) {
+        Result::Ok(ok,) => ok,
+        Result::Err(_,) => {
+            assert!(false)
+            false
+        },
+    }
 }
 
 /// Write a (G1, G2) pair to memory at the given offset.
@@ -97,16 +108,28 @@ fn write_pair(ptr: u256, a: G1Point, b: G2Point) uses (evm: mut Evm) {
 /// Uses effects to build memory layout directly, avoiding EVM stack overflow
 /// from passing 24 scalar arguments through the call convention.
 pub fn pairing_4(
-    a1: G1Point, b1: G2Point,
-    a2: G1Point, b2: G2Point,
-    a3: G1Point, b3: G2Point,
-    a4: G1Point, b4: G2Point,
-) -> bool uses (evm: mut Evm) {
+    a1: G1Point,
+    b1: G2Point,
+    a2: G1Point,
+    b2: G2Point,
+    a3: G1Point,
+    b3: G2Point,
+    a4: G1Point,
+    b4: G2Point,
+) -> bool
+uses (evm: mut Evm)
+{
     let ptr = std::evm::alloc(768)
     write_pair(ptr, a: a1, b: b1)
     write_pair(ptr: ptr + 192, a: a2, b: b2)
     write_pair(ptr: ptr + 384, a: a3, b: b3)
     write_pair(ptr: ptr + 576, a: a4, b: b4)
 
-    std::evm::crypto::ec_pairing(ptr, 768)
+    match std::evm::crypto::ec_pairing(offset: ptr, len: 768) {
+        Result::Ok(ok,) => ok,
+        Result::Err(_,) => {
+            assert!(false)
+            false
+        },
+    }
 }

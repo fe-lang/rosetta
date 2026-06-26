@@ -46,14 +46,12 @@ contract FullMathBenchTest {
         uint256 optLevel = vm.envOr("FE_SONA_OPT_LEVEL", uint256(2));
         require(optLevel <= 2, "BAD_FE_SONA_OPT_LEVEL");
 
-        string[] memory cmd = new string[](7);
+        string[] memory cmd = new string[](5);
         cmd[0] = vm.envOr("FE_BIN", "fe");
         cmd[1] = "build";
-        cmd[2] = "--backend";
-        cmd[3] = "sonatina";
-        cmd[4] = "-O";
-        cmd[5] = optLevel == 0 ? "0" : optLevel == 1 ? "1" : "2";
-        cmd[6] = "fe"; // local math ingot
+        cmd[2] = "-O";
+        cmd[3] = optLevel == 0 ? "0" : optLevel == 1 ? "1" : "2";
+        cmd[4] = "fe"; // local math ingot
         vm.ffi(cmd);
 
         // Deploy Fe contract from compiled bytecode
